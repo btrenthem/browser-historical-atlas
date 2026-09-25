@@ -1,6 +1,6 @@
 **Welcome to the Browser Historical Atlas!**
 
-This is a sandbox to make historical timelines across a pre-generated modern map. I made it for personal use, but you are free to download the html and experiment away. Please note this has not been tested on mobile yet.
+This is a sandbox to make historical timelines across a pre-generated modern map. I made it for personal use, but you are free to download the html and experiment away. This has not been tested on mobile yet.
 
 **How to use:**
 
