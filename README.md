@@ -15,9 +15,3 @@ For feedback on the main project, please reach out to brandon@brandontrenthem.co
 
 
 **AI Disclaimer:** The main author of the codebase is our AI overlord Claude. A public license is attached so do whatever you want with it.
-
-
-to-do:
-- Cut region(s)
-- Merge or place on top of region with delete
-- smart fill
