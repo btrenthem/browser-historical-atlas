@@ -456,6 +456,9 @@ body.phone .modal .pieces{grid-template-columns:1fr}
 .ed textarea.sources{min-height:54px;font-size:13.5px}
 .srclinks{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px}
 .srclinks a{font-size:13px;color:var(--accent)}
+.marker-size{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin:0 0 8px}
+.marker-size input{flex:1;accent-color:var(--accent)}
+.marker-size span{width:3.2em;text-align:right;font-variant-numeric:tabular-nums}
 .linger-default{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin:0 0 10px}
 .linger-default .linger{display:inline-flex;gap:4px}
 .linger-default input{width:4.5em;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink)}
@@ -854,7 +857,7 @@ const state={regions:[],markers:[],story:[],year:1000,min:-1000,max:2026,selecte
   mode:'view',draft:[],draftTarget:null,hover:null,editShape:false,
   showBorders:true,showAdmin1:false,showCNames:false,showPNames:false,
   terrain:{m:true,p:true,d:true,w:true,k:true,n:true},terrainOff:false,
-  reference:null,refName:'',playing:false,speed:10,snap:true,hiddenTags:[],view:'map',tab:'regions',q:'',storyIdx:-1,lastKind:'city',storyAuto:{on:false,interval:15,loop:true},tool:'line',follow:true,draftKind:'region',overlapCheck:true,vMin:null,vMax:null,linger:{n:5,u:'y'}};
+  reference:null,refName:'',playing:false,speed:10,snap:true,hiddenTags:[],view:'map',tab:'regions',q:'',storyIdx:-1,lastKind:'city',storyAuto:{on:false,interval:15,loop:true},tool:'line',follow:true,draftKind:'region',overlapCheck:true,markerScale:1,vMin:null,vMax:null,linger:{n:5,u:'y'}};
 
 /* ---------- stories: several per map ---------- */
 state.stories=[{id:'st-main',name:'Story 1',steps:[]}]; state.storyCur='st-main'; state.story=state.stories[0].steps;
@@ -955,8 +958,8 @@ function markerState(m,t){ if(tagHidden(m)) return 0; const p=curPrec(), pe=dT(d
 
 /* ---------- geometry ---------- */
 const proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
-const path=d3.geoPath(proj);
-const rnd=p=>[Math.round(p[0]*1000)/1000,Math.round(p[1]*1000)/1000];
+const path=d3.geoPath(proj).digits(6); // enough precision for very deep zoom
+const rnd=p=>[Math.round(p[0]*1e5)/1e5,Math.round(p[1]*1e5)/1e5]; // about 1 m, fine enough for a village
 const closeRing=r=>r.concat([r[0]]);
 function rewindPoly(poly){ if(d3.geoArea({type:'Polygon',coordinates:poly})>2*Math.PI) return poly.map(r=>r.slice().reverse()); return poly; }
 function geo(r){
@@ -1109,7 +1112,7 @@ if(window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEvent
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>requestRender());
 
 /* ---------- zoom ---------- */
-const zoom=d3.zoom().scaleExtent([1,60]).translateExtent([[-W*.12,-H*.12],[W*1.12,H*1.12]])
+const zoom=d3.zoom().scaleExtent([1,40000]).translateExtent([[-W*.12,-H*.12],[W*1.12,H*1.12]])
   .wheelDelta(e=>-e.deltaY*(e.deltaMode===1?0.05:e.deltaMode?1:0.002)*(e.ctrlKey?8:0.75))
   .filter(e=>{ const t=e.target; if(t&&t.closest&&t.closest('.handle,.mk')) return false; if(state.mode==='draw'&&state.tool==='free'&&e.type!=='wheel') return false; return (!e.ctrlKey||e.type==='wheel')&&!e.button; })
   .on('zoom',e=>{ root.attr('transform',e.transform); K=e.transform.k; rescale(); onZoomFrame(e.transform); })
@@ -1127,7 +1130,7 @@ function homeTransform(){
 $('#zHome').onclick=()=>svg.transition().duration(400).call(zoom.transform,homeTransform());
 function zoomToBounds(b,maxK){
   const [[x0,y0],[x1,y1]]=b; if(!isFinite(x0)) return;
-  const k=Math.max(1,Math.min(maxK||40,.75/Math.max((x1-x0)/W,(y1-y0)/H,1e-6)));
+  const k=Math.max(1,Math.min(maxK||40000,.75/Math.max((x1-x0)/W,(y1-y0)/H,1e-6)));
   svg.transition().duration(600).call(zoom.transform,d3.zoomIdentity.translate(W/2,H/2).scale(k).translate(-(x0+x1)/2,-(y0+y1)/2));
 }
 function zoomToRegion(r){ zoomToBounds(path.bounds(geo(r))); }
@@ -1219,7 +1222,7 @@ function rescale(){
   L.handles.selectAll('circle.v').attr('r',5.5*TOUCH_SCALE*PU/K);
   L.handles.selectAll('circle.m').attr('r',3.8*TOUCH_SCALE*PU/K);
   L.draft.selectAll('circle').attr('r',(d,i)=>(i===0&&state.draft.length>=3?7.5:4.5)*TOUCH_SCALE*PU/K);
-  L.markers.selectAll('g.mk').attr('transform',d=>`translate(${d._xy[0]},${d._xy[1]}) scale(${PU/K})`);
+  L.markers.selectAll('g.mk').attr('transform',d=>`translate(${d._xy[0]},${d._xy[1]}) scale(${PU*state.markerScale/K})`);
   if(snapRing.attr('display')!=='none') snapRing.attr('r',7*PU/K);
 }
 function visibleRegions(){
@@ -1254,7 +1257,7 @@ const markerDrag=d3.drag().subject(function(e,d){ return {x:d._xy[0],y:d._xy[1]}
   .on('start',(e,d)=>{ d._moved=false; })
   .on('drag',function(e,d){ if(state.mode!=='view') return; if(!d._moved){ checkpoint(); d._moved=true; }
     const ll=localToLonLat(e.x,e.y); if(!ll) return; d.lon=ll[0]; d.lat=ll[1]; d._xy=[e.x,e.y]; bump(d);
-    d3.select(this).attr('transform',`translate(${e.x},${e.y}) scale(${PU/K})`); })
+    d3.select(this).attr('transform',`translate(${e.x},${e.y}) scale(${PU*state.markerScale/K})`); })
   .on('end',(e,d)=>{ if(d._moved){ saveM(d); if(state.view==='chart') renderChart(); } });
 function renderRef(){
   const feats=state.reference?state.reference.features.filter(f=>f.geometry&&/Polygon/.test(f.geometry.type)):[];
@@ -1776,6 +1779,9 @@ function renderListShell(){
   const s=el('input',{type:'search',class:'search',id:'search',placeholder:tab==='regions'?'Search regions, tags, and notes':'Search markers, tags, and notes','aria-label':'Search'}); s.value=state.q;
   s.addEventListener('input',()=>{ state.q=s.value; renderResults(); });
   pbody.appendChild(s);
+  if(tab==='markers'){ const sl=el('input',{type:'range',min:0.4,max:3,step:0.1,'aria-label':'Marker size'}); sl.value=state.markerScale; const out=el('span',{text:Math.round(state.markerScale*100)+'%'});
+    sl.addEventListener('input',()=>{ state.markerScale=+sl.value; out.textContent=Math.round(state.markerScale*100)+'%'; rescale(); }); sl.addEventListener('change',saveSettingsSoon);
+    pbody.appendChild(el('label',{class:'marker-size'},'Marker size',sl,out)); }
   if(tab==='markers') pbody.appendChild(el('div',{class:'linger-default'},'After events end, keep them on the map for ',lingerControls(()=>state.linger,v=>{ state.linger=v||{n:0,u:'d'}; saveSettingsSoon(); renderAll(); },()=>state.linger)));
   pbody.appendChild(el('div',{class:'chips',id:'chips'}));
   pbody.appendChild(el('div',{id:'results'}));
@@ -3034,7 +3040,7 @@ const GUIDE=[
   {steps:['On an empty map, press “Load the Reconquista demo” in the side panel to see a finished example, or press “Draw a region” to start your own.','Click around a border, point by point. Click the first point again to close the shape.','Type a name, and fill in the years it existed under “From” and “Until.”','Press ▶ under the map, and watch your region appear and disappear with the years.']},
   {tip:'Press ⟦?⟧ at any time to open this guide, and hover over any button to see what it does and its shortcut.'}]],
  ['Moving around the map',[
-  {list:['Drag the map to move around.','Scroll or pinch to zoom, or use the + and − buttons in the corner. Double-click a spot to zoom in on it (hold ⟦Shift⟧ to zoom out).','Press ⌂ (or ⟦0⟧) to see the whole world again, and ⟦F⟧ to zoom to whatever is selected.','Hover over a region or marker to see its name, dates, and the start of its notes.']},
+  {list:['Drag the map to move around.','Scroll or pinch to zoom, or use the + and − buttons in the corner. Double-click a spot to zoom in on it (hold ⟦Shift⟧ to zoom out). You can zoom in far enough to map a single town or battlefield; ⟦F⟧ jumps straight to whatever is selected.','Press ⌂ (or ⟦0⟧) to see the whole world again, and ⟦F⟧ to zoom to whatever is selected.','Hover over a region or marker to see its name, dates, and the start of its notes.']},
   {tip:'Press ⟦F11⟧ for full screen, and ⟦H⟧ to hide the controls and see only the map.'}]],
  ['Using the timeline',[
   'The bar under the map is your timeline. Everything on the map belongs to a stretch of time, and only shows up while the timeline is inside it.',
@@ -3103,7 +3109,7 @@ const GUIDE=[
   {list:['Set “Border” to “Approximate” for a dashed, lighter outline, or to “Disputed” for a hatched area.','Tick “Approximate” under a year to show it as “c. 1100.”','Leave “Until” empty if the region still exists at the end of your timeline.']}]],
  ['Markers for cities and events',[
   {steps:['Press “New marker” (⟦M⟧) and click the map.','Choose the kind (city, battle, treaty, event, or other), and fill in the name, years, and notes.']},
-  'Drag a marker to move it. After an event ends, it stays on the map, faded, so it doesn\u2019t flash past during playback. The “Markers” tab sets how long for the whole map (five years to start with), and each marker can have its own time in days, months, or years. For a map about a single campaign, a few days is usually right.']],
+  'Drag a marker to move it. The “Marker size” slider in the “Markers” tab makes every marker icon and label smaller or larger, which helps when mapping a small area crowded with events. After an event ends, it stays on the map, faded, so it doesn\u2019t flash past during playback. The “Markers” tab sets how long for the whole map (five years to start with), and each marker can have its own time in days, months, or years. For a map about a single campaign, a few days is usually right.']],
  ['Tags and search',[
   'Tags group things together. Type them in the “Tags” box, separated by commas (for example, “Christian kingdoms, Iberia”).',
   {list:['Click a tag chip above the list to hide everything with that tag. Click it again to bring it back.','Press ⟦/⟧ to search names, tags, and notes.']}]],
@@ -3308,7 +3314,7 @@ function deserM(o){
   return readDates({id:o.id,name:String(o.name||''),kind:KINDS[o.kind]?o.kind:'other',start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
     lon:+o.lon,lat:+o.lat,notes:String(o.notes||''),tags:Array.isArray(o.tags)?o.tags.map(String):[],v:1,updated:+o.updated||0,sources:String(o.sources||''),linger:lg},o);
 }
-function settingsObj(){ return {min:state.min,max:state.max,year:state.year,showBorders:state.showBorders,showAdmin1:state.showAdmin1,showCNames:state.showCNames,showPNames:state.showPNames,terrain:state.terrain,terrainOff:state.terrainOff,snap:state.snap,hiddenTags:state.hiddenTags,view:state.view,lastKind:state.lastKind,storyAuto:state.storyAuto,vMin:state.vMin,vMax:state.vMax,linger:state.linger,tool:state.tool,follow:state.follow,includeWater:state.includeWater,snapOpts:state.snapOpts,overlapCheck:state.overlapCheck}; }
+function settingsObj(){ return {min:state.min,max:state.max,year:state.year,showBorders:state.showBorders,showAdmin1:state.showAdmin1,showCNames:state.showCNames,showPNames:state.showPNames,terrain:state.terrain,terrainOff:state.terrainOff,snap:state.snap,hiddenTags:state.hiddenTags,view:state.view,lastKind:state.lastKind,storyAuto:state.storyAuto,vMin:state.vMin,vMax:state.vMax,linger:state.linger,tool:state.tool,follow:state.follow,includeWater:state.includeWater,markerScale:state.markerScale,snapOpts:state.snapOpts,overlapCheck:state.overlapCheck}; }
 function applySettings(s){
   if(!s) return;
   if(isFinite(s.min)&&isFinite(s.max)&&s.min<s.max){ state.min=+s.min; state.max=+s.max; }
@@ -3321,6 +3327,7 @@ function applySettings(s){
   if(s.snapOpts&&typeof s.snapOpts==='object') Object.keys(state.snapOpts).forEach(k=>{ if(typeof s.snapOpts[k]==='boolean') state.snapOpts[k]=s.snapOpts[k]; });
   if(typeof s.overlapCheck==='boolean') state.overlapCheck=s.overlapCheck;
   if(typeof s.includeWater==='boolean') state.includeWater=s.includeWater;
+  if(isFinite(s.markerScale)&&s.markerScale>=0.4&&s.markerScale<=3) state.markerScale=+s.markerScale;
   if(isFinite(s.vMin)&&isFinite(s.vMax)&&s.vMin<s.vMax&&s.vMin!==null){ state.vMin=+s.vMin; state.vMax=+s.vMax; } else { state.vMin=null; state.vMax=null; }
   if(s.linger&&isFinite(s.linger.n)&&['d','m','y'].includes(s.linger.u)) state.linger={n:+s.linger.n,u:s.linger.u};
   if(['line','curve','free'].includes(s.tool)) state.tool=s.tool; if(typeof s.follow==='boolean') state.follow=s.follow;
