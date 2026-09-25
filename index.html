@@ -479,6 +479,32 @@ body.phone .tlzoom #winLabel{display:none}
 body.phone .evlist button{grid-template-columns:7em 14px minmax(0,1fr)}
 body.phone .evlist .ryears{display:none}
 @media (max-width:760px){ #winLabel{display:none} }
+
+/* routes and armies */
+.rt{cursor:pointer}
+.rt-line{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.88}
+.rt-hit{fill:none;stroke:transparent;stroke-width:14px;vector-effect:non-scaling-stroke}
+.rt-arrow{stroke:var(--land);stroke-width:1.2;paint-order:stroke}
+.rt-army rect{stroke:var(--land);stroke-width:1.4}
+.rt-x{stroke:#fff;stroke-width:1.6;fill:none}
+.rt-label{font:700 11px var(--sans);fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--land);stroke-width:3px;stroke-linejoin:round}
+.rt.faded{opacity:.42}
+.rt.sel .rt-line{opacity:1;filter:drop-shadow(0 0 2px var(--ink))}
+.drawing .rt,.placing .rt{pointer-events:none}
+.ed .stops{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.ed .stop{display:grid;grid-template-columns:4.2em 1fr 6.5em;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.ed .stop input{margin:0!important;padding:5px 7px!important;font-size:13px!important}
+
+.journey{border:1px solid var(--line);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:5px}
+.journey .jhead,.journey .jrow{display:grid;grid-template-columns:4.3em minmax(0,1fr) minmax(0,1.15fr) 5.6em;gap:5px;align-items:center}
+.journey .jhead span{font-size:11px;color:var(--muted)}
+.journey .jlab{font-size:12.5px;color:var(--muted)}
+.journey .jend .jlab{color:var(--ink);font-weight:600}
+.journey input{margin:0!important;padding:5px 6px!important;font-size:13px!important;min-width:0}
+.rt-stop{stroke:var(--land);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.rt-stoplabel{font:600 10px var(--sans);fill:var(--ink);paint-order:stroke;stroke:var(--land);stroke-width:3px;stroke-linejoin:round}
+.handle.v.stopv{stroke-width:2.4}
+body.phone .journey .jhead,body.phone .journey .jrow{grid-template-columns:3.8em minmax(0,1fr) minmax(0,1fr) 4.6em}
 .modal{padding:10px;align-items:end}
 body.phone .modal > div{width:100%;max-height:calc(100% - 10px);overflow-y:auto;border-radius:14px}
 body.phone .modal .row{flex-wrap:wrap}
@@ -613,6 +639,7 @@ body.phone .dropzone > div{padding:24px}
       <div class="menu">
         <button class="btn" id="btnTools" aria-haspopup="true" aria-expanded="false">Tools</button>
         <div class="menu-list" id="toolsMenu" hidden>
+          <button id="tRoute">New route or army <kbd>U</kbd></button>
           <button id="tFill">Smart fill (paint bucket) <kbd>G</kbd></button>
           <button id="tErase">Erase an area <kbd>W</kbd></button>
           <hr>
@@ -853,11 +880,11 @@ const KINDS={
   other:{label:'Other',sym:d3.symbolDiamond,size:80,color:'#5f6b8f',rot:0}
 };
 
-const state={regions:[],markers:[],story:[],year:1000,min:-1000,max:2026,selected:null,selKind:null,
+const state={regions:[],markers:[],routes:[],story:[],year:1000,min:-1000,max:2026,selected:null,selKind:null,
   mode:'view',draft:[],draftTarget:null,hover:null,editShape:false,
   showBorders:true,showAdmin1:false,showCNames:false,showPNames:false,
   terrain:{m:true,p:true,d:true,w:true,k:true,n:true},terrainOff:false,
-  reference:null,refName:'',playing:false,speed:10,snap:true,hiddenTags:[],view:'map',tab:'regions',q:'',storyIdx:-1,lastKind:'city',storyAuto:{on:false,interval:15,loop:true},tool:'line',follow:true,draftKind:'region',overlapCheck:true,markerScale:1,vMin:null,vMax:null,linger:{n:5,u:'y'}};
+  reference:null,refName:'',playing:false,speed:10,snap:true,hiddenTags:[],view:'map',tab:'regions',q:'',storyIdx:-1,lastKind:'city',storyAuto:{on:false,interval:15,loop:true},tool:'line',follow:true,draftKind:'region',overlapCheck:true,markerScale:1,markerDrag:false,vMin:null,vMax:null,linger:{n:5,u:'y'}};
 
 /* ---------- stories: several per map ---------- */
 state.stories=[{id:'st-main',name:'Story 1',steps:[]}]; state.storyCur='st-main'; state.story=state.stories[0].steps;
@@ -948,7 +975,13 @@ const shownR=r=>active(r,state.year)&&!tagHidden(r);
 const LUNIT={d:'day',m:'month',y:'year'};
 const lingerT=l=>!l?0:l.u==='d'?l.n/365.2425:l.u==='m'?l.n/12:l.n;
 const lingerOf=m=>m.linger?m.linger:(m.kind==='city'?null:state.linger);
-function lingerEnd(m){ const e=tEnd(m), l=lingerOf(m); if(!isFinite(e)||!l||!l.n) return e; if(l.u==='y') return e+l.n;
+// A continued marker (a duplicate at the same spot, starting as this one ends) hands over with no fade.
+const hasSuccessor=(m,e)=>state.markers.some(o=>o!==m&&o.lon===m.lon&&o.lat===m.lat&&Math.abs(tStart(o)-e)<1e-6);
+function lingerEnd(m){ const e=tEnd(m); if(!isFinite(e)||hasSuccessor(m,e)) return e;
+  let l=lingerOf(m); if(!l||!l.n) return e;
+  // the map-wide default never keeps an event on the map longer than the event itself lasted
+  if(!m.linger){ const cap=e-tStart(m); if(lingerT(l)>cap) return e+cap; }
+  if(l.u==='y') return e+l.n;
   const f=fromT(e+1e-7); if(l.u==='m'){ const k=f.y*12+(f.m-1)+l.n, y=Math.floor(k/12), mo=k%12+1; return toT(y,mo,Math.min(f.d,dim(y,mo))); }
   let x=D(f.y,f.m,f.d); for(let i=0;i<l.n&&i<5000;i++) x=dNext(x); return dT(x); }
 // A marker counts as "on" if it happens at any point in the period on screen (the whole year in year view, the whole month in month view).
@@ -984,6 +1017,8 @@ const findRegion=id=>state.regions.find(r=>r.id===id);
 const findMarker=id=>state.markers.find(m=>m.id===id);
 const selRegion=()=>state.selKind==='region'?findRegion(state.selected):null;
 const selMarker=()=>state.selKind==='marker'?findMarker(state.selected):null;
+const findRoute=id=>state.routes.find(r=>r.id===id);
+const selRoute=()=>state.selKind==='route'?findRoute(state.selected):null;
 function parseTags(s){ return [...new Set(String(s||'').split(',').map(t=>t.trim()).filter(Boolean))]; }
 function allTags(){ const c=new Map(); state.regions.concat(state.markers).forEach(o=>(o.tags||[]).forEach(t=>c.set(t,(c.get(t)||0)+1))); return [...c.entries()].sort((a,b)=>a[0].localeCompare(b[0])); }
 
@@ -991,7 +1026,7 @@ function allTags(){ const c=new Map(); state.regions.concat(state.markers).forEa
 const svg=d3.select('#map').attr('viewBox',`0 0 ${W} ${H}`).attr('preserveAspectRatio','xMidYMid meet').attr('xmlns','http://www.w3.org/2000/svg');
 const defs=svg.append('defs');
 const root=svg.append('g');
-const L={}; ['ref','regions','preview','markers','draft','handles','snap'].forEach(n=>L[n]=root.append('g'));
+const L={}; ['ref','regions','preview','routes','markers','draft','handles','snap'].forEach(n=>L[n]=root.append('g'));
 const snapRing=L.snap.append('circle').attr('class','snapring').attr('display','none');
 let K=1;
 function hatchId(color){
@@ -1114,7 +1149,7 @@ if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>requestRe
 /* ---------- zoom ---------- */
 const zoom=d3.zoom().scaleExtent([1,40000]).translateExtent([[-W*.12,-H*.12],[W*1.12,H*1.12]])
   .wheelDelta(e=>-e.deltaY*(e.deltaMode===1?0.05:e.deltaMode?1:0.002)*(e.ctrlKey?8:0.75))
-  .filter(e=>{ const t=e.target; if(t&&t.closest&&t.closest('.handle,.mk')) return false; if(state.mode==='draw'&&state.tool==='free'&&e.type!=='wheel') return false; return (!e.ctrlKey||e.type==='wheel')&&!e.button; })
+  .filter(e=>{ const t=e.target; if(t&&t.closest&&(t.closest('.handle')||(state.markerDrag&&t.closest('.mk')))) return false; if(state.mode==='draw'&&state.tool==='free'&&e.type!=='wheel') return false; return (!e.ctrlKey||e.type==='wheel')&&!e.button; })
   .on('zoom',e=>{ root.attr('transform',e.transform); K=e.transform.k; rescale(); onZoomFrame(e.transform); })
   .on('start',()=>hideTip())
   .on('end',()=>{ clearTimeout(gestureT); requestRender(); });
@@ -1222,7 +1257,7 @@ function rescale(){
   L.handles.selectAll('circle.v').attr('r',5.5*TOUCH_SCALE*PU/K);
   L.handles.selectAll('circle.m').attr('r',3.8*TOUCH_SCALE*PU/K);
   L.draft.selectAll('circle').attr('r',(d,i)=>(i===0&&state.draft.length>=3?7.5:4.5)*TOUCH_SCALE*PU/K);
-  L.markers.selectAll('g.mk').attr('transform',d=>`translate(${d._xy[0]},${d._xy[1]}) scale(${PU*state.markerScale/K})`);
+  L.markers.selectAll('g.mk').attr('transform',d=>`translate(${d._xy[0]},${d._xy[1]}) scale(${PU*state.markerScale*(d.size||1)/K})`);
   if(snapRing.attr('display')!=='none') snapRing.attr('r',7*PU/K);
 }
 function visibleRegions(){
@@ -1253,11 +1288,11 @@ function renderMarkers(){
   g.select('text').text(d=>d.name);
   rescale();
 }
-const markerDrag=d3.drag().subject(function(e,d){ return {x:d._xy[0],y:d._xy[1]}; })
+const markerDrag=d3.drag().filter(e=>state.markerDrag&&!e.button).subject(function(e,d){ return {x:d._xy[0],y:d._xy[1]}; })
   .on('start',(e,d)=>{ d._moved=false; })
-  .on('drag',function(e,d){ if(state.mode!=='view') return; if(!d._moved){ checkpoint(); d._moved=true; }
+  .on('drag',function(e,d){ if(state.mode!=='view'||!state.markerDrag) return; if(!d._moved){ checkpoint(); d._moved=true; }
     const ll=localToLonLat(e.x,e.y); if(!ll) return; d.lon=ll[0]; d.lat=ll[1]; d._xy=[e.x,e.y]; bump(d);
-    d3.select(this).attr('transform',`translate(${e.x},${e.y}) scale(${PU*state.markerScale/K})`); })
+    d3.select(this).attr('transform',`translate(${e.x},${e.y}) scale(${PU*state.markerScale*(d.size||1)/K})`); })
   .on('end',(e,d)=>{ if(d._moved){ saveM(d); if(state.view==='chart') renderChart(); } });
 function renderRef(){
   const feats=state.reference?state.reference.features.filter(f=>f.geometry&&/Polygon/.test(f.geometry.type)):[];
@@ -1278,6 +1313,7 @@ function renderDraft(){
 }
 function renderHandles(){
   L.handles.selectAll('*').remove();
+  const rt=selRoute(); if(rt){ if(state.editShape&&state.mode==='view'&&routeState(rt,state.year)) renderRouteHandles(rt); return; }
   const r=selRegion();
   if(!r||!state.editShape||!active(r,state.year)||state.mode!=='view') return;
   const verts=[],mids=[];
@@ -1343,7 +1379,7 @@ function removeVertex(r,d){
   others.sort((x,y)=>y.i-x.i).forEach(m=>{ m.r.parts[m.pi][m.ri].splice(m.i,1); bump(m.r); save(m.r); });
   ring.splice(d.i,1); bump(r); save(r); renderAll();
 }
-function renderAll(){ renderRegions(); renderMarkers(); renderDraft(); renderHandles(); renderTimeline(); if(state.view==='chart') renderChart(); }
+function renderAll(){ renderRegions(); renderRoutes(); renderMarkers(); renderDraft(); renderHandles(); renderTimeline(); if(state.view==='chart') renderChart(); }
 
 
 
@@ -1403,7 +1439,8 @@ function curPrec(){ const sp=winMax()-winMin(); return sp>25?'y':sp>2?'m':'d'; }
 function nowDate(prec){ const f=fromT(state.year+1e-7); prec=prec||curPrec(); return prec==='y'?D(f.y):prec==='m'?D(f.y,f.m):D(f.y,f.m,f.d); }
 const fmtNow=()=>fmtT(state.year,curPrec());
 const snapT=(t,prec)=>dT(truncD(fromT(t+1e-7),prec||curPrec()));
-function changePoints(){ const s=new Set(); state.regions.concat(state.markers).forEach(o=>{ s.add(+tStart(o).toFixed(7)); const e=tEnd(o); if(isFinite(e)) s.add(+e.toFixed(7)); }); return [...s].sort((a,b)=>a-b); }
+function routeTimes(t){ const out=[tStart(t)]; if(t.end!=null) out.push(tStart({start:t.end,startM:t.endM,startD:t.endD}),tEnd(t)); (t.stops||[]).forEach(s0=>{ if(s0.date) out.push(dT(s0.date)); }); return out; }
+function changePoints(){ const s=new Set(); state.regions.concat(state.markers).forEach(o=>{ s.add(+tStart(o).toFixed(7)); const e=tEnd(o); if(isFinite(e)) s.add(+e.toFixed(7)); }); state.routes.forEach(t=>routeTimes(t).forEach(x=>{ if(isFinite(x)) s.add(+x.toFixed(7)); })); return [...s].sort((a,b)=>a-b); }
 function renderTimeline(){
   const a=winMin(), b=winMax(), p=curPrec();
   slider.value=String(Math.round((state.year-a)/(b-a)*10000));
@@ -1418,6 +1455,7 @@ function renderTimeline(){
 function renderTicks(){
   const t=$('#ticks'); t.textContent=''; const a=winMin(), b=winMax(), sp=b-a||1;
   state.regions.forEach(r=>{ [tStart(r),tEnd(r)].forEach(y=>{ if(!isFinite(y)||y<a||y>b) return; const i=document.createElement('i'); i.style.left=((y-a)/sp*100)+'%'; i.style.background=r.color; t.appendChild(i); }); });
+  state.routes.forEach(rt=>routeTimes(rt).forEach(y=>{ if(!isFinite(y)||y<a||y>b) return; const i=document.createElement('i'); i.className='mk'; i.style.left=((y-a)/sp*100)+'%'; i.style.background=rt.color; t.appendChild(i); }));
   state.markers.forEach(m=>{ const y=tStart(m); if(y<a||y>b) return; const i=document.createElement('i'); i.className='mk'; i.style.left=((y-a)/sp*100)+'%'; i.style.background=KINDS[m.kind].color; t.appendChild(i); });
 }
 function updateSpeedLabels(){ const u=LUNIT[curPrec()]; [...$('#speed').options].forEach(o=>{ const v=+o.value; o.textContent=`${v} ${u}${v>1?'s':''}/s`; }); }
@@ -1526,6 +1564,7 @@ $('#dbWater').addEventListener('change',e=>{ state.includeWater=e.target.checked
 function drawMessage(){
   const k=state.draftKind, r=state.draftTarget&&findRegion(state.draftTarget), nm=r?`\u201c${r.name||'Untitled region'}\u201d`:'';
   if(k==='cut') return `<strong>Splitting ${nm}.</strong> Draw a line across it, from one side to the other, then press \u201cFinish\u201d (Enter). The line is extended to the edges for you.`;
+  if(k==='route') return '<strong>Drawing a route.</strong> Click along the way it went, from start to finish. Every point you click becomes a stop that can have its own date. Press \u201cFinish\u201d (Enter) when done.';
   if(k==='erase') return '<strong>Erasing an area.</strong> Draw around the area to remove from the map, and click the first point (or press Enter) to finish. You\u2019ll choose which regions lose it.';
   if(k==='part') return `<strong>Adding a part to ${nm}.</strong> Draw around the new area, and click the first point (or press Enter) to finish.`;
   return '<strong>Drawing a new region.</strong> Draw around its border, and click the first point (or press Enter) to finish.';
@@ -1600,6 +1639,9 @@ function undoNode(){ const last=state.draft[state.draft.length-1]; if(!last) ret
 function closeTol(){ return (IS_PHONE?22:9)/(K*(IS_PHONE?visibleVB().sc:1)); }
 function finishDraft(){
   const kind=state.draftKind;
+  if(kind==='route'){ if(state.draft.length<2){ toast('Click at least two points for a route.'); return; } const nodes=state.draft.slice(), redo=state.routeRedo&&findRoute(state.routeRedo); state.routeRedo=null; exitDraw();
+    if(redo){ checkpoint(); const line=expandNodes(nodes,false); redo.pts=line; redo.stops=[]; bump(redo); saveR(redo); select(redo.id,'route'); toast('Route redrawn.'); return; }
+    finishRoute(nodes); return; }
   if(kind==='cut'){
     if(state.draft.length<2){ toast('Draw a line with at least two points across the region.'); return; }
     const line=expandNodes(state.draft,false), r=findRegion(state.draftTarget); exitDraw(); if(r) splitDialog(r,line); return;
@@ -1650,7 +1692,7 @@ svg.on('click',e=>{
   const [x,y]=d3.pointer(e,root.node());
   if(state.mode==='draw'){
     if(performance.now()<suppressClickUntil) return;
-    if(state.draftKind!=='cut'&&state.draft.length>=3){ const f=proj(state.draft[0].p); if(Math.hypot(f[0]-x,f[1]-y)<closeTol()){ finishDraft(); return; } }
+    if(state.draftKind!=='cut'&&state.draftKind!=='route'&&state.draft.length>=3){ const f=proj(state.draft[0].p); if(Math.hypot(f[0]-x,f[1]-y)<closeTol()){ finishDraft(); return; } }
     const s=findSnap(x,y,null,e.altKey); const ll=s?s.ll:localToLonLat(x,y); if(!ll) return;
     addNode(ll,s&&s.ref,state.tool==='free'?'line':state.tool); renderDraft(); return;
   }
@@ -1700,21 +1742,22 @@ svg.on('pointerleave',()=>{ if(state.mode==='draw'){ showSnap(null); state.hover
 
 /* ---------- undo / redo ---------- */
 const hist={undo:[],redo:[]};
-function snapshot(){ return JSON.stringify({r:state.regions.map(ser),m:state.markers.map(serM),s:storiesPayload()}); }
+function snapshot(){ return JSON.stringify({r:state.regions.map(ser),m:state.markers.map(serM),t:state.routes.map(serR),s:storiesPayload()}); }
 function trimHist(){ let total=0; for(let i=hist.undo.length-1;i>=0;i--){ total+=hist.undo[i].length; if(total>60e6||hist.undo.length-i>200){ hist.undo.splice(0,i); break; } } }
 function checkpoint(){ hist.undo.push(snapshot()); hist.redo.length=0; trimHist(); updateUndoUI(); }
 function updateUndoUI(){ $('#btnUndo').disabled=!hist.undo.length; $('#btnRedo').disabled=!hist.redo.length; }
 function restore(str){
   const o=JSON.parse(str);
   const before=new Map(state.regions.map(r=>[r.id,JSON.stringify(ser(r))])), beforeM=new Map(state.markers.map(m=>[m.id,JSON.stringify(serM(m))]));
-  const beforeStory=JSON.stringify(storiesPayload());
-  state.regions=o.r.map(deser).filter(Boolean); state.markers=(o.m||[]).map(deserM).filter(Boolean); { const st=storiesFrom(o.s); setStories(st.list,st.cur); }
+  const beforeStory=JSON.stringify(storiesPayload()), beforeT=new Map(state.routes.map(t=>[t.id,JSON.stringify(serR(t))]));
+  state.regions=o.r.map(deser).filter(Boolean); state.markers=(o.m||[]).map(deserM).filter(Boolean); state.routes=(o.t||[]).map(deserR).filter(Boolean); { const st=storiesFrom(o.s); setStories(st.list,st.cur); }
+  state.routes.forEach(t=>{ if(beforeT.get(t.id)!==JSON.stringify(serR(t))) saveR(t); beforeT.delete(t.id); }); beforeT.forEach((_,id)=>removeStored({id},'routes'));
   state.regions.forEach(r=>{ const b=before.get(r.id); if(b!==JSON.stringify(ser(r))) save(r); before.delete(r.id); });
   before.forEach((_,id)=>removeStored({id},'regions'));
   state.markers.forEach(m=>{ const b=beforeM.get(m.id); if(b!==JSON.stringify(serM(m))) saveM(m); beforeM.delete(m.id); });
   beforeM.forEach((_,id)=>removeStored({id},'markers'));
   if(beforeStory!==JSON.stringify(storiesPayload())) saveStory();
-  if(state.selected&&!(findRegion(state.selected)||findMarker(state.selected))){ state.selected=null; state.selKind=null; state.editShape=false; }
+  if(state.selected&&!(findRegion(state.selected)||findMarker(state.selected)||findRoute(state.selected))){ state.selected=null; state.selKind=null; state.editShape=false; }
   renderTicks(); renderAll(); renderPanel({full:true}); renderTabs();
   if(state.storyIdx>=0){ if(state.storyIdx>=state.story.length) exitStory(); else showStoryCard(); }
 }
@@ -1727,9 +1770,9 @@ const pbody=$('#pbody');
 function el(tag,attrs,...kids){ const n=document.createElement(tag); if(attrs) for(const k in attrs){ const v=attrs[k]; if(v==null||v===false) continue; if(k==='text') n.textContent=v; else if(k.startsWith('on')) n.addEventListener(k.slice(2),v); else if(k==='class') n.className=v; else n.setAttribute(k,v===true?'':v); } kids.forEach(c=>c!=null&&n.appendChild(typeof c==='string'?document.createTextNode(c):c)); return n; }
 function select(id,kind,opts={}){
   if(id) setSheet(true);
-  state.selected=id||null; state.selKind=id?(kind||(findMarker(id)?'marker':'region')):null;
-  if(!id||state.selKind!=='region') state.editShape=false;
-  if(state.selKind) state.tab=state.selKind==='marker'?'markers':'regions';
+  state.selected=id||null; state.selKind=id?(kind||(findMarker(id)?'marker':findRoute(id)?'route':'region')):null;
+  if(!id||(state.selKind!=='region'&&state.selKind!=='route')) state.editShape=false;
+  if(state.selKind) state.tab=state.selKind==='region'?'regions':'markers';
   renderAll(); renderTabs(); renderPanel(Object.assign({full:true},opts));
 }
 function renderTabs(){
@@ -1744,7 +1787,8 @@ function renderPanel(opts={}){
   if(after===before) sc.scrollTop=top; else sc.scrollTop=0;
 }
 function renderPanelInner(opts={}){
-  const r=selRegion(), m=selMarker();
+  const r=selRegion(), m=selMarker(), rt=selRoute();
+  if(rt){ if(pbody.dataset.mode==='editr'&&pbody.dataset.id===rt.id&&!opts.full) return; renderRouteEditor(rt,opts); return; }
   if(r){ if(pbody.dataset.mode==='edit'&&pbody.dataset.id===r.id&&!opts.full){ updateEditorNotice(r); return; } renderRegionEditor(r,opts); return; }
   if(m){ if(pbody.dataset.mode==='editm'&&pbody.dataset.id===m.id&&!opts.full){ updateMarkerNotice(m); return; } renderMarkerEditor(m,opts); return; }
   if(state.tab==='story'){ renderStoryList(); return; }
@@ -1779,9 +1823,12 @@ function renderListShell(){
   const s=el('input',{type:'search',class:'search',id:'search',placeholder:tab==='regions'?'Search regions, tags, and notes':'Search markers, tags, and notes','aria-label':'Search'}); s.value=state.q;
   s.addEventListener('input',()=>{ state.q=s.value; renderResults(); });
   pbody.appendChild(s);
+  if(tab==='markers') pbody.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'New route or army',title:'Draw a movement: a campaign, migration, or trade route (U)',onclick:startRoute})));
   if(tab==='markers'){ const sl=el('input',{type:'range',min:0.4,max:3,step:0.1,'aria-label':'Marker size'}); sl.value=state.markerScale; const out=el('span',{text:Math.round(state.markerScale*100)+'%'});
     sl.addEventListener('input',()=>{ state.markerScale=+sl.value; out.textContent=Math.round(state.markerScale*100)+'%'; rescale(); }); sl.addEventListener('change',saveSettingsSoon);
-    pbody.appendChild(el('label',{class:'marker-size'},'Marker size',sl,out)); }
+    pbody.appendChild(el('label',{class:'marker-size'},'Marker size',sl,out));
+    const dg=el('input',{type:'checkbox'}); dg.checked=state.markerDrag; dg.addEventListener('change',()=>{ state.markerDrag=dg.checked; saveSettingsSoon(); toast(dg.checked?'Markers can now be dragged to move them.':'Markers are locked in place.'); });
+    pbody.appendChild(el('label',{class:'marker-size'},dg,'Allow dragging markers to move them')); }
   if(tab==='markers') pbody.appendChild(el('div',{class:'linger-default'},'After events end, keep them on the map for ',lingerControls(()=>state.linger,v=>{ state.linger=v||{n:0,u:'d'}; saveSettingsSoon(); renderAll(); },()=>state.linger)));
   pbody.appendChild(el('div',{class:'chips',id:'chips'}));
   pbody.appendChild(el('div',{id:'results'}));
@@ -1804,10 +1851,14 @@ function rowM(m){
   return el('li',{class:tagHidden(m)?'dim':null},el('button',{onclick:()=>goToMarker(m)},
     kindIcon(m.kind), el('span',{class:'rname',text:m.name||'Untitled marker'}), el('span',{class:'ryears',text:span(m)})));
 }
+function rowRt(t){
+  const ic=el('span',{class:'sw',style:'border:0;display:inline-grid;place-items:center'}); ic.innerHTML=`<svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 11 L7 5 L12 3" stroke="${t.color}" stroke-width="2.4" fill="none" stroke-dasharray="${(ROUTE_KINDS[t.kind]||{}).dash||''}"/></svg>`;
+  return el('li',{class:tagHidden(t)?'dim':null},el('button',{onclick:()=>{ if(!routeState(t,state.year)) setYear(tStart(t),{force:true}); select(t.id,'route'); }},ic,el('span',{class:'rname',text:t.name||'Untitled route'}),el('span',{class:'ryears',text:span(t)})));
+}
 function renderResults(){
   renderChips(); const box=$('#results'); if(!box) return; box.textContent='';
-  const isR=state.tab==='regions', items=(isR?state.regions:state.markers).filter(matchQ), row=isR?rowR:rowM;
-  const now=o=>isR?active(o,state.year):markerState(o,state.year)>0;
+  const isR=state.tab==='regions', items=(isR?state.regions:state.markers.concat(state.routes)).filter(matchQ), row=o=>isR?rowR(o):(o.pts?rowRt(o):rowM(o));
+  const now=o=>isR?active(o,state.year):(o.pts?routeState(o,state.year)>0:markerState(o,state.year)>0);
   const on=items.filter(now).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const off=items.filter(o=>!now(o)).sort((a,b)=>tStart(a)-tStart(b));
   if(!items.length){ box.appendChild(el('p',{class:'ryears',text:'Nothing matches that search.'})); return; }
@@ -1946,6 +1997,11 @@ function renderMarkerEditor(m,opts){
   ed.appendChild(el('label',null,'Kind',kind));
   ed.appendChild(yearFields(m,refresh));
   ed.appendChild(lingerField(m,refresh));
+  { const sl=el('input',{type:'range',min:0.4,max:3,step:0.1,'aria-label':'Size of this marker'}); sl.value=m.size||1; const out=el('span',{text:Math.round((m.size||1)*100)+'%'});
+    let pend=true; sl.addEventListener('pointerdown',()=>pend=true);
+    sl.addEventListener('input',()=>{ if(pend){ checkpoint(); pend=false; } m.size=+sl.value; out.textContent=Math.round(m.size*100)+'%'; rescale(); });
+    sl.addEventListener('change',()=>{ bump(m); saveM(m); pend=true; });
+    ed.appendChild(el('label',{class:'marker-size'},'Size of this marker',sl,out)); }
   ed.appendChild(tagField(m,refresh));
   const notes=el('textarea',{placeholder:'What happened, who was involved…'}); notes.value=m.notes||'';
   bindEdit(notes,v=>{ m.notes=v; bump(m); saveM(m); });
@@ -1955,8 +2011,8 @@ function renderMarkerEditor(m,opts){
   const delBtn=el('button',{class:'btn danger',text:'Delete',onclick:()=>{
     if(!delArmed){ delBtn.textContent='Click again to delete'; delArmed=setTimeout(()=>{ delArmed=null; delBtn.textContent='Delete'; },3500); return; }
     clearTimeout(delArmed); deleteMarker(m); }});
-  ed.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'Zoom to',onclick:()=>{ ensureMap(); zoomToMarker(m); }}),focusBtn(m),delBtn));
-  ed.appendChild(el('p',{class:'hint',text:'Drag the marker on the map to move it. When an event ends, it stays on the map, faded, for the time set above, so short events don\u2019t flash past during playback.'}));
+  ed.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'Zoom to',onclick:()=>{ ensureMap(); zoomToMarker(m); }}),focusBtn(m),el('button',{class:'btn',text:'Duplicate',title:'End this marker and start a copy at the same spot (D)',onclick:()=>duplicateMarker(m)}),delBtn));
+  ed.appendChild(el('p',{class:'hint',text:(state.markerDrag?'Drag the marker on the map to move it. ':'To move markers by dragging, tick \u201cAllow dragging markers\u201d in the \u201cMarkers\u201d tab. ')+'To tell a place\u2019s story over time, go to the date of a change and press \u201cDuplicate.\u201d When an event ends, it stays on the map, faded, for the time set above, so short events don\u2019t flash past during playback.'}));
   pbody.appendChild(ed); updateMarkerNotice(m);
   if(opts.focusName){ name.focus(); name.select(); }
 }
@@ -1985,6 +2041,16 @@ function lingerField(m,refresh){
 }
 function focusBtn(o){ return el('button',{class:'btn',text:'Focus timeline',title:'Zoom the timeline in to this item\u2019s dates',onclick:()=>focusTimeline(o)}); }
 
+function duplicateMarker(m){
+  checkpoint(); let sd;
+  if(m.end!=null) sd=dNext(dEnd(m));
+  else { sd=nowDate(); if(dT(sd)<=tStart(m)+1e-9) sd=dNext(truncD(dStart(m),curPrec())); setDEnd(m,dPrev(sd)); bump(m); saveM(m); }
+  const c={id:uid('m'),name:m.name,kind:m.kind,start:sd.y,end:null,startCirca:false,endCirca:false,lon:m.lon,lat:m.lat,notes:'',sources:'',tags:(m.tags||[]).slice(),linger:m.linger||null,size:m.size||1,v:1,updated:Date.now()};
+  setDStart(c,sd); if(m.kind!=='city') setDEnd(c,sd);
+  state.markers.push(c); saveM(c); if(state.max<sd.y) state.max=sd.y; renderTicks();
+  setYear(dT(sd),{force:true}); select(c.id,'marker');
+  toast(`The old marker now ends ${fmtD(dPrev(sd))}. The copy starts ${fmtD(sd)}, ready for its own name and notes.`);
+}
 function duplicate(r){
   checkpoint();
   let sd;
@@ -2311,6 +2377,7 @@ function smartFill(x,y){
 }
 function applyToolsMenu(){ const c=$('#tOverlap'); if(c) c.checked=!!state.overlapCheck; }
 $('#tFill').onclick=()=>startFill();
+$('#tRoute').onclick=()=>startRoute();
 $('#tErase').onclick=()=>startDraw(null,'erase');
 $('#tMerge').onclick=()=>{ const r=selRegion(); if(!r){ toast('Select a region first, then choose \u201cMerge.\u201d'); return; } mergeDialog(r); };
 $('#tSplit').onclick=()=>{ const r=selRegion(); if(!r){ toast('Select a region first, then choose \u201cSplit.\u201d'); return; } startCut(r); };
@@ -2322,6 +2389,8 @@ $('#toolsMenu').addEventListener('click',e=>{ if(e.target.closest('button')) clo
 function eventList(){
   const out=[];
   state.regions.forEach(r=>{ out.push({t:tStart(r),dt:dStart(r),c:r.startCirca,o:r,kind:'region',what:'begins'}); if(r.end!=null) out.push({t:endExclT(r.end,r.endM,r.endD)-1e-7,dt:dEnd(r),c:r.endCirca,o:r,kind:'region',what:'ends'}); });
+  state.routes.forEach(t=>(t.stops||[]).forEach((s0,i)=>{ if(s0.date) out.push({t:dT(s0.date),dt:s0.date,c:false,o:t,kind:'region',what:`reaches ${s0.name||'stop '+(i+1)}`}); }));
+  state.routes.forEach(t=>{ out.push({t:tStart(t),dt:dStart(t),c:t.startCirca,o:t,kind:'region',what:t.army?'sets out':'begins'}); if(t.end!=null&&!dEq(dEnd(t),dStart(t))) out.push({t:endExclT(t.end,t.endM,t.endD)-1e-7,dt:dEnd(t),c:t.endCirca,o:t,kind:'region',what:t.army?'arrives':'ends'}); });
   state.markers.forEach(m=>out.push({t:tStart(m),dt:dStart(m),c:m.startCirca,o:m,kind:'marker',what:m.end!=null&&!dEq(dEnd(m),dStart(m))?`until ${fmtD(dEnd(m))}`:''}));
   return out.sort((a,b)=>a.t-b.t||(a.what==='ends')-(b.what==='ends'));
 }
@@ -2336,7 +2405,7 @@ function renderEvents(){
     items.forEach(x=>{ if(x.dt.y!==lastYear){ lastYear=x.dt.y; list.appendChild(el('li',{class:'evyear',text:fmtYear(x.dt.y)})); }
       const icon=x.kind==='region'?el('span',{class:'sw',style:`background:${x.o.color}`}):kindIcon(x.o.kind);
       const label=x.kind==='region'?`${x.o.name||'Untitled region'} ${x.what}`:(x.o.name||'Untitled marker');
-      list.appendChild(el('li',{'data-t':x.t},el('button',{onclick:()=>{ if(x.kind==='region'){ setYear(x.what==='ends'?Math.max(tStart(x.o),x.t-1e-6):x.t,{force:true}); goToRegion(x.o); } else goToMarker(x.o); }},
+      list.appendChild(el('li',{'data-t':x.t},el('button',{onclick:()=>{ if(x.o.pts){ setYear(x.what==='arrives'||x.what==='ends'?Math.max(tStart(x.o),x.t-1e-6):x.t,{force:true}); select(x.o.id,'route'); return; } if(x.kind==='region'){ setYear(x.what==='ends'?Math.max(tStart(x.o),x.t-1e-6):x.t,{force:true}); goToRegion(x.o); } else goToMarker(x.o); }},
         el('span',{class:'evdate',text:(x.c?'c. ':'')+(x.dt.m==null?fmtYear(x.dt.y):fmtD(x.dt))}),icon,el('span',{class:'rname',text:label}),x.what&&x.kind==='marker'?el('span',{class:'ryears',text:x.what}):null))); });
     markNowEvent(); };
   s.addEventListener('input',()=>{ evQ=s.value; draw(); });
@@ -2345,6 +2414,172 @@ function renderEvents(){
   const cur=list.querySelector('li.now'); if(cur) requestAnimationFrame(()=>cur.scrollIntoView({block:'center'}));
 }
 function markNowEvent(){ const list=$('#evlist'); if(!list) return; let last=null; list.querySelectorAll('li[data-t]').forEach(li=>{ li.classList.remove('now'); if(+li.dataset.t<=state.year+1e-7) last=li; }); if(last) last.classList.add('now'); }
+
+
+/* ---------- routes and armies ----------
+   A route is an open line with dates. As time passes it grows from its start to its end;
+   stops (the points you clicked) can have their own dates and troop numbers. An army shows a
+   unit symbol at the tip, and troop numbers set the line's thickness (Minard style). */
+const ROUTE_KINDS={advance:{label:'Advance',dash:null,arrow:true},retreat:{label:'Retreat',dash:'9 6',arrow:true},route:{label:'Route or road',dash:null,arrow:false},planned:{label:'Planned (never happened)',dash:'2 6',arrow:true}};
+function routeGeo(r){
+  if(r._rg&&r._rgv===r.v) return r._rg;
+  const P=r.pts.map(p=>proj(p)||[NaN,NaN]), cum=[0]; for(let i=1;i<P.length;i++) cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
+  const stops=(r.stops||[]).filter(s0=>s0.k>0&&s0.k<P.length-1).sort((a,b)=>a.k-b.k);
+  r._rg={P,cum,total:cum[cum.length-1]||0,stops}; r._rgv=r.v; return r._rg;
+}
+function routeDistAt(r,t){ // how far along the route the movement has got at time t
+  const g=routeGeo(r), t0=tStart(r), t1=r.end==null?t0:tStart({start:r.end,startM:r.endM,startD:r.endD});
+  const ctl=[{d:0,t:t0}]; g.stops.forEach(s0=>{ if(s0.date){ const tt=dT(s0.date); if(tt>t0&&tt<t1) ctl.push({d:g.cum[s0.k],t:tt}); } }); ctl.push({d:g.total,t:Math.max(t1,t0)});
+  if(t<=t0) return 0; if(t>=ctl[ctl.length-1].t) return g.total;
+  for(let i=1;i<ctl.length;i++) if(t<=ctl[i].t){ const a=ctl[i-1],b=ctl[i]; return a.d+(b.d-a.d)*((t-a.t)/Math.max(1e-9,b.t-a.t)); }
+  return g.total;
+}
+function troopsAt(r,d){
+  const g=routeGeo(r), pts=[]; if(isFinite(r.troopsStart)&&r.troopsStart>0) pts.push({d:0,n:r.troopsStart});
+  g.stops.forEach(s0=>{ if(isFinite(s0.troops)&&s0.troops>0) pts.push({d:g.cum[s0.k],n:s0.troops}); });
+  if(isFinite(r.troopsEnd)&&r.troopsEnd>0) pts.push({d:g.total,n:r.troopsEnd});
+  if(!pts.length) return null; if(pts.length===1||d<=pts[0].d) return pts[0].n; const last=pts[pts.length-1]; if(d>=last.d) return last.n;
+  for(let i=1;i<pts.length;i++) if(d<=pts[i].d){ const a=pts[i-1],b=pts[i]; return a.n+(b.n-a.n)*((d-a.d)/Math.max(1e-9,b.d-a.d)); } return last.n;
+}
+function routeLingerEnd(r){ const e=tEnd(r); if(!isFinite(e)) return e; const l=r.linger||state.linger; if(!l||!l.n) return e;
+  if(!r.linger){ const cap=e-tStart(r); if(lingerT(l)>cap) return e+cap; } return e+lingerT(l); }
+function routeState(r,t){ if(tagHidden(r)) return 0; const p=curPrec(), pe=dT(dNext(truncD(fromT(t+1e-7),p))); if(tStart(r)>=pe-1e-9) return 0;
+  const e=tEnd(r); if(t<e-1e-9) return 1; if(t<routeLingerEnd(r)-1e-9) return 2; return 0; }
+function maxTroops(){ let m=0; state.routes.forEach(r=>{ [r.troopsStart,r.troopsEnd].concat((r.stops||[]).map(s0=>s0.troops)).forEach(n=>{ if(isFinite(n)&&n>m) m=n; }); }); return m; }
+function renderRoutes(){
+  const vis=state.routes.filter(r=>(r._s=routeState(r,state.year))>0), mx=maxTroops();
+  const g=L.routes.selectAll('g.rt').data(vis,d=>d.id).join(en=>{ const g=en.append('g').attr('class','rt');
+      g.on('click',(e,d)=>{ if(state.mode!=='view') return; e.stopPropagation(); hidePop(); select(d.id,'route'); })
+       .on('mousemove',(e,d)=>showTip(e,d.name||'Untitled route',`${ROUTE_KINDS[d.kind].label}${d.army?', army':''}, ${span(d)}`,d.notes)).on('mouseleave',hideTip);
+      return g; });
+  g.classed('faded',d=>d._s===2).classed('sel',d=>d.id===state.selected);
+  g.each(function(r){
+    const G=d3.select(this); G.selectAll('*').remove(); const geo0=routeGeo(r), P=geo0.P; if(P.length<2) return;
+    const dist=r._s===2?geo0.total:routeDistAt(r,state.year), K0=ROUTE_KINDS[r.kind]||ROUTE_KINDS.route;
+    // points up to the current position
+    const pts=[P[0]]; let tip=P[0], ang=0;
+    for(let i=1;i<P.length;i++){ if(geo0.cum[i]<=dist){ pts.push(P[i]); tip=P[i]; ang=Math.atan2(P[i][1]-P[i-1][1],P[i][0]-P[i-1][0]); }
+      else { const f=(dist-geo0.cum[i-1])/Math.max(1e-9,geo0.cum[i]-geo0.cum[i-1]); tip=[P[i-1][0]+(P[i][0]-P[i-1][0])*f,P[i-1][1]+(P[i][1]-P[i-1][1])*f]; ang=Math.atan2(P[i][1]-P[i-1][1],P[i][0]-P[i-1][0]); if(f>0) pts.push(tip); break; } }
+    const widthAt=d=>{ const n=troopsAt(r,d); return n&&mx?2+22*n/mx:(r.kind==='route'?2.2:3.2); };
+    const minard=mx&&troopsAt(r,0)!=null;
+    if(minard){ let acc=0; for(let i=1;i<pts.length;i++){ const seg=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]); const w=widthAt(acc+seg/2); acc+=seg;
+        G.append('line').attr('class','rt-line').attr('x1',pts[i-1][0]).attr('y1',pts[i-1][1]).attr('x2',pts[i][0]).attr('y2',pts[i][1]).attr('stroke',r.color).attr('stroke-width',w*PU).attr('stroke-dasharray',K0.dash); } }
+    else G.append('path').attr('class','rt-line').attr('d',d3.line()(pts)).attr('stroke',r.color).attr('stroke-width',widthAt(dist)*PU).attr('stroke-dasharray',K0.dash);
+    G.append('path').attr('class','rt-hit').attr('d',d3.line()(pts));
+    geo0.stops.forEach(s0=>{ if(!s0.name||geo0.cum[s0.k]>dist+1e-9) return; const q=P[s0.k]; G.append('circle').attr('class','rt-stop').attr('cx',q[0]).attr('cy',q[1]).attr('r',3*PU*state.markerScale/K).attr('fill',r.color);
+      G.append('text').attr('class','rt-stoplabel').attr('transform',`translate(${q[0]},${q[1]}) scale(${PU*state.markerScale/K})`).attr('x',7).attr('y',4).text(s0.name); });
+    const sc=PU*state.markerScale/K, deg=ang*180/Math.PI;
+    if(K0.arrow&&pts.length>1){ const w=Math.max(7,widthAt(dist)*0.9+5); G.append('path').attr('class','rt-arrow').attr('d',`M${w*1.1},0L${-w*0.6},${-w*0.75}L${-w*0.6},${w*0.75}Z`).attr('fill',r.color).attr('transform',`translate(${tip[0]},${tip[1]}) scale(${sc}) rotate(${deg})`); }
+    if(r.army){ const u=G.append('g').attr('class','rt-army').attr('transform',`translate(${tip[0]},${tip[1]}) scale(${sc})`);
+      const ox=K0.arrow?-Math.cos(ang)*27:0, oy=K0.arrow?-Math.sin(ang)*27:0; // sit just behind the arrowhead, whichever way it points
+      u.append('rect').attr('x',-11+ox).attr('y',-8+oy).attr('width',22).attr('height',16).attr('rx',2).attr('fill',r.color);
+      u.append('path').attr('d',`M${-11+ox},${-8+oy}L${11+ox},${8+oy}M${11+ox},${-8+oy}L${-11+ox},${8+oy}`).attr('class','rt-x');
+      u.append('text').attr('x',ox).attr('y',oy-13).attr('class','rt-label').text(r.name||''); }
+    else G.append('text').attr('class','rt-label').attr('transform',`translate(${tip[0]},${tip[1]}) scale(${sc})`).attr('y',-10).text(r.name||'');
+  });
+}
+// (5) Reshape a route: drag points, drag the small dots to add points, right-click (or hold) to remove.
+function shiftStops(rt,at,delta){ rt.stops=(rt.stops||[]).map(s0=>s0.k>at?Object.assign({},s0,{k:s0.k+delta}):s0); }
+function renderRouteHandles(rt){
+  const P=routeGeo(rt).P; if(P.length>800){ toast('This route has too many points to edit by hand. Use \u201cDraw the line again\u201d instead.'); state.editShape=false; renderPanel({full:true}); return; }
+  const subj=function(){ return {x:+this.getAttribute('cx'),y:+this.getAttribute('cy')}; };
+  const place=(i,e,el)=>{ const sn=findSnap(e.x,e.y,null,e.sourceEvent&&e.sourceEvent.altKey); showSnap(sn); const ll=sn?sn.ll:localToLonLat(e.x,e.y); if(!ll) return; rt.pts[i]=ll; bump(rt); d3.select(el).attr('cx',sn?sn.x:e.x).attr('cy',sn?sn.y:e.y); renderRoutes(); };
+  const mids=[]; for(let i=0;i<rt.pts.length-1;i++) mids.push({i,p:rnd(d3.geoInterpolate(rt.pts[i],rt.pts[i+1])(.5))});
+  L.handles.selectAll('circle.m').data(mids).join('circle').attr('class','handle m').attr('cx',d=>proj(d.p)[0]).attr('cy',d=>proj(d.p)[1])
+    .call(d3.drag().subject(subj).on('start',(e,d)=>{ checkpoint(); rt.pts.splice(d.i+1,0,d.p); shiftStops(rt,d.i,1); d.ins=d.i+1; bump(rt); })
+      .on('drag',function(e,d){ place(d.ins,e,this); }).on('end',()=>{ showSnap(null); saveR(rt); renderAll(); }));
+  const stopK=new Set((rt.stops||[]).map(s0=>s0.k).concat([0,rt.pts.length-1]));
+  const remove=i=>{ if(rt.pts.length<=2){ toast('A route needs at least two points.'); return; } checkpoint(); rt.pts.splice(i,1); rt.stops=(rt.stops||[]).filter(s0=>s0.k!==i); shiftStops(rt,i,-1); bump(rt); saveR(rt); renderAll(); renderPanel({full:true}); };
+  L.handles.selectAll('circle.v').data(rt.pts.map((p,i)=>({i}))).join('circle').attr('class',d=>'handle v'+(stopK.has(d.i)?' stopv':'')).attr('cx',d=>P[d.i][0]).attr('cy',d=>P[d.i][1])
+    .on('contextmenu',(e,d)=>{ e.preventDefault(); e.stopPropagation(); remove(d.i); })
+    .on('click',(e,d)=>{ e.stopPropagation(); if(e.altKey) remove(d.i); })
+    .on('pointerdown.hold',function(e,d){ if(e.pointerType!=='touch') return; const el=this, sx=e.clientX, sy=e.clientY; const t=setTimeout(()=>{ cancel(); remove(d.i); },550);
+      const mv=ev=>{ if(Math.hypot(ev.clientX-sx,ev.clientY-sy)>8) cancel(); }, cancel=()=>{ clearTimeout(t); el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',cancel); }; el.addEventListener('pointermove',mv); el.addEventListener('pointerup',cancel); })
+    .call(d3.drag().subject(subj).on('start',(e,d)=>{ d._m=false; }).on('drag',function(e,d){ if(!d._m){ checkpoint(); d._m=true; } place(d.i,e,this); })
+      .on('end',(e,d)=>{ showSnap(null); if(d._m){ saveR(rt); renderAll(); } }));
+  rescale();
+}
+function startRoute(){ state.editShape=false; startDraw(null,'route'); }
+function finishRoute(nodes){
+  const line=expandNodes(nodes,false); const idx=[]; let from=0;
+  nodes.forEach((n,i)=>{ if(i>0&&i<nodes.length-1&&n.auto) return; for(let j=from;j<line.length;j++){ if(line[j][0]===n.p[0]&&line[j][1]===n.p[1]){ idx.push(j); from=j; break; } } });
+  checkpoint();
+  const nd=nowDate(), r={id:uid('t'),name:'Untitled route',kind:'advance',army:false,color:PALETTE[(state.routes.length+2)%PALETTE.length],start:nd.y,end:null,startCirca:false,endCirca:false,pts:line,stops:idx.slice(1,-1).map(k=>({k})),notes:'',sources:'',tags:[],troopsStart:null,troopsEnd:null,linger:null,v:1,updated:Date.now()};
+  setDStart(r,nd); setDEnd(r,nd);
+  state.routes.push(r); saveR(r); renderTicks(); select(r.id,'route',{focusName:true});
+  toast('Route added. Set its dates (it travels from the start date to the end date) and whether it\u2019s an army.');
+}
+function renderRouteEditor(r,opts){
+  pbody.dataset.mode='editr'; pbody.dataset.id=r.id; pbody.textContent='';
+  const ed=el('div',{class:'ed'}), refresh=()=>{ saveR(r); renderTicks(); renderAll(); };
+  ed.appendChild(el('button',{class:'back',text:'Back to the list',onclick:()=>select(null)}));
+  const name=el('input',{type:'text',id:'f-name',autocomplete:'off'}); name.value=r.name; bindEdit(name,v=>{ r.name=v; bump(r); saveR(r); renderRoutes(); });
+  ed.appendChild(el('label',null,'Name',name));
+  const kind=el('select'); Object.entries(ROUTE_KINDS).forEach(([k,v])=>kind.appendChild(el('option',{value:k,text:v.label}))); kind.value=r.kind;
+  kind.addEventListener('change',()=>{ checkpoint(); r.kind=kind.value; bump(r); refresh(); }); ed.appendChild(el('label',null,'Type',kind));
+  const army=el('input',{type:'checkbox'}); army.checked=!!r.army; army.addEventListener('change',()=>{ checkpoint(); r.army=army.checked; bump(r); refresh(); });
+  ed.appendChild(el('label',{class:'marker-size'},army,'This is an army (a unit symbol travels along the route)'));
+  const sw=el('div',{class:'swatches'}); PALETTE.forEach(c=>sw.appendChild(el('button',{style:`background:${c}`,'aria-label':'Color '+c,'aria-pressed':String(c===r.color),onclick:()=>{ checkpoint(); r.color=c; bump(r); refresh(); renderPanel({full:true}); }})));
+  const pk=el('input',{type:'color'}); pk.value=r.color; pk.addEventListener('change',()=>{ checkpoint(); r.color=pk.value; bump(r); refresh(); }); sw.appendChild(pk);
+  ed.appendChild(el('label',null,'Color (for an army, its side)',sw));
+  ed.appendChild(journeyTable(r,refresh));
+  ed.appendChild(el('p',{class:'hint',text:'Troop numbers set the line\u2019s thickness, compared with the largest army on the map, so you can watch an army shrink (like Minard\u2019s map of Napoleon\u2019s march on Russia).'}));
+  const lf=lingerControls(()=>r.linger,v=>{ checkpoint(); r.linger=v; bump(r); refresh(); },()=>state.linger);
+  ed.appendChild(el('label',null,'After it arrives, keep it on the map (faded) for',lf));
+  ed.appendChild(tagField(r,refresh));
+  const notes=el('textarea',{placeholder:'Commanders, events along the way…'}); notes.value=r.notes||''; bindEdit(notes,v=>{ r.notes=v; bump(r); saveR(r); }); ed.appendChild(el('label',null,'Notes',notes));
+  ed.appendChild(sourcesField(r,()=>saveR(r)));
+  let armed=null; const del=el('button',{class:'btn danger',text:'Delete',onclick:()=>{ if(!armed){ del.textContent='Click again to delete'; armed=setTimeout(()=>{ armed=null; del.textContent='Delete'; },3500); return; }
+    clearTimeout(armed); checkpoint(); state.routes=state.routes.filter(x=>x!==r); removeStored(r,'routes'); select(null); renderTicks(); toast(`Deleted \u201c${r.name||'Untitled route'}.\u201d Undo will bring it back.`); }});
+  ed.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'Zoom to',onclick:()=>{ ensureMap(); const P=routeGeo(r).P; const xs=P.map(p=>p[0]),ys=P.map(p=>p[1]); zoomToBounds([[Math.min(...xs),Math.min(...ys)],[Math.max(...xs),Math.max(...ys)]]); }}),
+    focusBtn(r),el('button',{class:'btn','aria-pressed':String(!!state.editShape),text:state.editShape?'Done editing points':'Edit points',title:'Drag the route\u2019s points to reshape it (E)',onclick:()=>{ ensureMap(); if(!routeState(r,state.year)) setYear(tStart(r),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); }}),
+    el('button',{class:'btn',text:'Draw the line again',onclick:()=>{ state.routeRedo=r.id; startDraw(null,'route'); }}),del));
+  if(state.editShape) ed.appendChild(el('p',{class:'hint',text:(NO_HOVER?'Drag a white point to move it, drag a small dot to add one, and press and hold a point to remove it.':'Drag a white point to move it, drag a small dot to add one, and right-click (or Alt-click) a point to remove it.')+' The larger points are stops, which can have dates in the journey table.'}));
+  pbody.appendChild(ed); if(opts.focusName){ name.focus(); name.select(); }
+}
+// The whole journey in one table: Start, each stop, and Arrival, each with a name, date, and troops.
+// The Start and Arrival dates are the route's own dates, so dating the last point sets the route's end.
+function journeyTable(r,refresh){
+  const g0=routeGeo(r), last=g0.P.length-1, rows=[{k:0,kind:'start'}].concat(g0.stops.map(s0=>({k:s0.k,kind:'stop',s:s0})),[{k:last,kind:'end'}]);
+  const dateOf=row=>row.kind==='start'?dStart(r):row.kind==='end'?dEnd(r):(row.s.date||null);
+  const tOf=dt=>dt?dT(dt):null;
+  const wrap=el('div',{class:'journey'}); wrap.appendChild(el('div',{class:'jhead'},el('span',{text:''}),el('span',{text:'Name (optional)'}),el('span',{text:'Date'}),el('span',{text:'Troops'})));
+  rows.forEach((row,ri)=>{
+    const label=row.kind==='start'?'Start':row.kind==='end'?'Arrival':`Stop ${ri}`;
+    const nm=el('input',{type:'text',placeholder:row.kind==='stop'?'e.g., Toledo':'',autocomplete:'off'});
+    const getName=()=>row.kind==='start'?(r.startName||''):row.kind==='end'?(r.endName||''):(row.s.name||'');
+    nm.value=getName(); bindEdit(nm,v=>{ const x=v.trim(); if(row.kind==='start') r.startName=x||undefined; else if(row.kind==='end') r.endName=x||undefined; else { if(x) row.s.name=x; else delete row.s.name; } bump(r); saveR(r); renderRoutes(); },'change');
+    const di=el('input',{type:'text',placeholder:row.kind==='end'?'arrival date':row.kind==='start'?'start date':'optional',autocomplete:'off'}); di.value=fmtDIn(dateOf(row));
+    di.addEventListener('change',()=>{
+      const v=di.value.trim(), dt=v?parseDate(v):null;
+      if(v&&(!dt||typeof dt==='number')){ toast('Type a date like 1085, May 1085, or May 25, 1085.'); di.value=fmtDIn(dateOf(row)); return; }
+      if(row.kind==='start'&&!dt){ toast('The start needs a date.'); di.value=fmtDIn(dateOf(row)); return; }
+      // (4) keep the journey in order
+      const t=tOf(dt), before=rows.slice(0,ri).map(x=>tOf(dateOf(x))).filter(x=>x!=null), after=rows.slice(ri+1).map(x=>tOf(dateOf(x))).filter(x=>x!=null);
+      if(t!=null&&before.length&&t<Math.max(...before)-1e-9){ toast(`${label} can\u2019t come before ${fmtD(fromDateT(Math.max(...before)))}, the date of an earlier point.`); di.value=fmtDIn(dateOf(row)); return; }
+      if(t!=null&&after.length&&t>Math.min(...after)+1e-9){ toast(`${label} can\u2019t come after ${fmtD(fromDateT(Math.min(...after)))}, the date of a later point.`); di.value=fmtDIn(dateOf(row)); return; }
+      checkpoint();
+      if(row.kind==='start') setDStart(r,dt); else if(row.kind==='end') setDEnd(r,dt); else { if(dt) row.s.date=dt; else delete row.s.date; }
+      bump(r); refresh(); di.value=fmtDIn(dateOf(row));
+      if(row.kind==='end'&&dt) toast(`The route now arrives ${fmtD(dt)}.`);
+    });
+    const getT=()=>row.kind==='start'?r.troopsStart:row.kind==='end'?r.troopsEnd:row.s.troops;
+    const tr=el('input',{type:'number',min:0,step:100,placeholder:'optional'}); tr.value=isFinite(getT())&&getT()>0?getT():'';
+    tr.addEventListener('change',()=>{ checkpoint(); const n=parseFloat(tr.value), v=isFinite(n)&&n>0?Math.round(n):null;
+      if(row.kind==='start') r.troopsStart=v; else if(row.kind==='end') r.troopsEnd=v; else { if(v) row.s.troops=v; else delete row.s.troops; } bump(r); refresh(); });
+    wrap.appendChild(el('div',{class:'jrow'+(row.kind!=='stop'?' jend':'')},el('span',{class:'jlab',text:label}),nm,di,tr));
+  });
+  return el('div',null,el('label',{style:'margin-bottom:4px'},'The journey'),wrap,
+    el('p',{class:'hint',text:'The route sets out on the Start date and arrives on the Arrival date; dating a stop sets the pace in between. Every point you clicked while drawing is a stop, and a named stop appears along the route and in the \u201cEvents\u201d list once reached.'}));
+}
+const fromDateT=t=>{ const f=fromT(t+1e-7); return D(f.y,f.m,f.d); };
+function serR(r){ return {...dateFields(r),...(r.startName?{startName:r.startName}:{}),...(r.endName?{endName:r.endName}:{}),id:r.id,name:r.name,kind:r.kind,army:!!r.army,color:r.color,start:r.start,end:r.end,startCirca:!!r.startCirca,endCirca:!!r.endCirca,pts:JSON.stringify(r.pts),stops:JSON.stringify(r.stops||[]),notes:r.notes||'',sources:r.sources||'',tags:r.tags||[],troopsStart:r.troopsStart??null,troopsEnd:r.troopsEnd??null,linger:r.linger||null,updated:r.updated||Date.now()}; }
+function deserR(o){ try{ if(!o||typeof o.id!=='string') return null; const pts=typeof o.pts==='string'?JSON.parse(o.pts):o.pts; if(!Array.isArray(pts)||pts.length<2) return null;
+    const stops=typeof o.stops==='string'?JSON.parse(o.stops):(o.stops||[]);
+    return readDates({...(o.startName?{startName:String(o.startName)}:{}),...(o.endName?{endName:String(o.endName)}:{}),id:o.id,name:String(o.name||''),kind:ROUTE_KINDS[o.kind]?o.kind:'route',army:!!o.army,color:/^#[0-9a-f]{6}$/i.test(o.color||'')?o.color:PALETTE[2],start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
+      pts,stops:Array.isArray(stops)?stops:[],notes:String(o.notes||''),sources:String(o.sources||''),tags:Array.isArray(o.tags)?o.tags.map(String):[],troopsStart:isFinite(o.troopsStart)&&o.troopsStart>0?+o.troopsStart:null,troopsEnd:isFinite(o.troopsEnd)&&o.troopsEnd>0?+o.troopsEnd:null,
+      linger:o.linger&&isFinite(o.linger.n)&&['d','m','y'].includes(o.linger.u)?{n:+o.linger.n,u:o.linger.u}:null,v:1,updated:+o.updated||0},o); }catch(_){ return null; } }
+function saveR(r){ saveTo('routes',r,()=>serR(r)); }
 
 /* ---------- story ---------- */
 const tweenNode=document.createElement('div');
@@ -2678,12 +2913,13 @@ MENUS.forEach(([b,m])=>{ $(b).onclick=e=>{ e.stopPropagation(); closeMenus(m); $
 $('#fileMenu').addEventListener('click',()=>closeMenus());
 document.addEventListener('click',()=>closeMenus());
 $('#terrainMenu').addEventListener('change',e=>{ const k=e.target.dataset.t; if(!k) return; if(k==='all') state.terrainOff=!e.target.checked; else state.terrain[k]=e.target.checked; applyTerrain(); saveSettingsSoon(); });
-function exportBackup(){ return JSON.stringify({atlas:3,exported:new Date().toISOString(),settings:settingsObj(),regions:state.regions.map(ser),markers:state.markers.map(serM),stories:state.stories,cur:state.storyCur,story:state.story},null,1); }
+function exportBackup(){ return JSON.stringify({atlas:3,exported:new Date().toISOString(),settings:settingsObj(),regions:state.regions.map(ser),markers:state.markers.map(serM),routes:state.routes.map(serR),stories:state.stories,cur:state.storyCur,story:state.story},null,1); }
 const isoD=dt=>dt?`${dt.y}${dt.m?'-'+String(dt.m).padStart(2,'0'):''}${dt.d?'-'+String(dt.d).padStart(2,'0'):''}`:null;
 function exportGeo(){
   const fr=state.regions.map(r=>({type:'Feature',properties:{id:r.id,name:r.name,start:r.start,end:r.end,startDate:isoD(dStart(r)),endDate:isoD(dEnd(r)),sources:r.sources||'',startCirca:r.startCirca,endCirca:r.endCirca,color:r.color,notes:r.notes,tags:r.tags,border:r.border,becomes:r.becomes,overlord:r.overlord},geometry:geo(r)}));
+  const ft=state.routes.map(t=>({type:'Feature',properties:{id:t.id,name:t.name,route:true,kind:t.kind,army:t.army,color:t.color,startDate:isoD(dStart(t)),endDate:isoD(dEnd(t)),troopsStart:t.troopsStart,troopsEnd:t.troopsEnd,notes:t.notes,tags:t.tags},geometry:{type:'LineString',coordinates:t.pts}}));
   const fm=state.markers.map(m=>({type:'Feature',properties:{id:m.id,name:m.name,kind:m.kind,start:m.start,end:m.end,startDate:isoD(dStart(m)),endDate:isoD(dEnd(m)),linger:m.linger||null,sources:m.sources||'',startCirca:m.startCirca,endCirca:m.endCirca,notes:m.notes,tags:m.tags},geometry:{type:'Point',coordinates:[m.lon,m.lat]}}));
-  return JSON.stringify({type:'FeatureCollection',features:fr.concat(fm)});
+  return JSON.stringify({type:'FeatureCollection',features:fr.concat(ft,fm)});
 }
 $('#mExport').onclick=()=>offerFile('historical-atlas-backup.json',exportBackup(),'application/json');
 $('#mGeo').onclick=()=>offerFile('historical-atlas.geojson',exportGeo(),'application/json');
@@ -2719,6 +2955,7 @@ function loadReference(j,name){
 }
 function importParsed(j){
   let inR=[],inM=[],inS=null,inSet=null;
+  let inT=Array.isArray(j.routes)?j.routes.map(deserR).filter(Boolean):[];
   if(j.atlas&&Array.isArray(j.regions)){ inR=j.regions.map(deser).filter(Boolean); inM=(j.markers||[]).map(deserM).filter(Boolean); if(Array.isArray(j.stories)&&j.stories.length) inS=j.stories; else if(Array.isArray(j.story)&&j.story.length) inS=[{id:'st-'+(j.demo?'demo':uid('st')),name:j.demo||'Imported story',steps:j.story}]; if(j.settings) inSet=j.settings; }
   else {
     const feats=j.type==='Feature'?[j]:(j.features||[]);
@@ -2730,11 +2967,12 @@ function importParsed(j){
       inR.push(deser(Object.assign({id:typeof p.id==='string'?p.id:uid('r'),color:p.color,border:p.border,becomes:p.becomes,overlord:p.overlord,parts},base))); });
     inR=inR.filter(Boolean);
   }
-  if(!inR.length&&!inM.length&&!inS){ toast('That file has no regions, markers, or story steps to import.'); return; }
+  if(!inR.length&&!inM.length&&!inS&&!inT.length){ toast('That file has no regions, markers, or story steps to import.'); return; }
   checkpoint();
   const wasEmpty=!state.regions.length&&!state.markers.length&&!totalSteps();
   let added=0,updated=0;
   inR.forEach(r=>{ r.updated=Date.now(); const i=state.regions.findIndex(x=>x.id===r.id); if(i>=0){ state.regions[i]=r; updated++; } else { state.regions.push(r); added++; } save(r); });
+  inT.forEach(t=>{ t.updated=Date.now(); const i=state.routes.findIndex(x=>x.id===t.id); if(i>=0){ state.routes[i]=t; updated++; } else { state.routes.push(t); added++; } saveR(t); });
   inM.forEach(m=>{ m.updated=Date.now(); const i=state.markers.findIndex(x=>x.id===m.id); if(i>=0){ state.markers[i]=m; updated++; } else { state.markers.push(m); added++; } saveM(m); });
   let firstImported=null;
   if(inS){
@@ -2768,7 +3006,7 @@ window.addEventListener('drop',async e=>{
 function eraseAll(){
   checkpoint();
   state.regions.forEach(r=>removeStored(r,'regions')); state.markers.forEach(m=>removeStored(m,'markers'));
-  state.regions=[]; state.markers=[]; setStories([],null); saveStory();
+  state.routes.forEach(t=>removeStored(t,'routes')); state.regions=[]; state.markers=[]; state.routes=[]; setStories([],null); saveStory();
   state.hiddenTags=[]; state.selected=null; state.selKind=null; state.editShape=false; state.q='';
   exitStory(); if(state.mode!=='view') exitDraw(); stopPlay();
   state.reference=null; state.refName=''; renderRef(); hidePop();
@@ -2844,7 +3082,7 @@ async function saveImage(){
     const c=document.createElement('canvas'); c.width=ow; c.height=oh; const ctx=c.getContext('2d');
     renderBase(ctx,g);
     L.handles.attr('display','none'); snapRing.attr('display','none');
-    const str=mapSvgString(['ref','regions','markers'],ow,oh,false,resolvedCSS());
+    const str=mapSvgString(['ref','regions','routes','markers'],ow,oh,false,resolvedCSS());
     L.handles.attr('display',null);
     const img=await svgToImage(str); ctx.setTransform(1,0,0,1,0,0); ctx.drawImage(img,0,0,ow,oh);
     renderTop(ctx,g,{noClear:true}); ctx.setTransform(1,0,0,1,0,0); stampYear(ctx,ow,oh,2,state.year);
@@ -2889,12 +3127,12 @@ async function recordVideo(fromD,toD,yps,unit){
     const newCv=()=>{ const cv=document.createElement('canvas'); cv.width=ow; cv.height=oh; return cv; };
     const toBlob=cv=>new Promise(r=>cv.toBlob(r,'image/webp',.95));
     const base=newCv(); renderBase(base.getContext('2d'),g);
-    const frameCv=async()=>{ const cv=newCv(), x=cv.getContext('2d'); x.drawImage(await svgToImage(mapSvgString(['ref','regions','markers'],ow,oh,false,css)),0,0,ow,oh); renderTop(x,g,{noClear:true}); return cv; };
+    const frameCv=async()=>{ const cv=newCv(), x=cv.getContext('2d'); x.drawImage(await svgToImage(mapSvgString(['ref','regions','routes','markers'],ow,oh,false,css)),0,0,ow,oh); renderTop(x,g,{noClear:true}); return cv; };
     const cache=new Map(), frames=[];
     for(let i=0;i<times.length;i++){
       if(cancelled) throw 'cancel';
       const y=times[i]; setYear(y,{force:true,quiet:true});
-      const key=state.regions.filter(shownR).map(r=>r.id+':'+r.v).join()+'|'+state.markers.map(mk=>mk.id+':'+markerState(mk,y)).join();
+      const key=state.regions.filter(shownR).map(r=>r.id+':'+r.v).join()+'|'+state.markers.map(mk=>mk.id+':'+markerState(mk,y)).join()+'|'+state.routes.map(t=>t.id+':'+routeState(t,y)+':'+Math.round(routeDistAt(t,y)*10)).join();
       if(!cache.has(key)) cache.set(key,await toBlob(await frameCv()));
       frames.push(key);
       if(i%5===0){ bar.style.width=(i/times.length*40)+'%'; await new Promise(r=>setTimeout(r,0)); }
@@ -2976,9 +3214,10 @@ const HELP=[
     ['New marker',['M']],
     ['Edit shape of selected region',['E']],
     ['Add a part to selected region',['A']],
-    ['Duplicate selected region',['D']],
+    ['Duplicate selected region or marker',['D']],
     ['Merge selected region with another',['J']],
     ['Split selected region',['X']],
+    ['New route or army',['U']],
     ['Smart fill (paint bucket)',['G']],
     ['Erase an area',['W']],
     ['Rename selected',['F2']],
@@ -3109,7 +3348,14 @@ const GUIDE=[
   {list:['Set “Border” to “Approximate” for a dashed, lighter outline, or to “Disputed” for a hatched area.','Tick “Approximate” under a year to show it as “c. 1100.”','Leave “Until” empty if the region still exists at the end of your timeline.']}]],
  ['Markers for cities and events',[
   {steps:['Press “New marker” (⟦M⟧) and click the map.','Choose the kind (city, battle, treaty, event, or other), and fill in the name, years, and notes.']},
-  'Drag a marker to move it. The “Marker size” slider in the “Markers” tab makes every marker icon and label smaller or larger, which helps when mapping a small area crowded with events. After an event ends, it stays on the map, faded, so it doesn\u2019t flash past during playback. The “Markers” tab sets how long for the whole map (five years to start with), and each marker can have its own time in days, months, or years. For a map about a single campaign, a few days is usually right.']],
+  'After an event ends, it fades for the time set in the “Markers” tab (five years to start with), but never longer than the event itself lasted, so a three-day battle fades after three days. A marker\u2019s own setting overrides this. Markers stay put unless you tick “Allow dragging markers” in the “Markers” tab. To tell a place\u2019s story over time (a city renamed or rebuilt, say), go to the date of the change, select the marker, and press “Duplicate” (⟦D⟧): the original ends just before that date, and a copy at the same spot starts then, ready for its own name and notes. The old version disappears the moment the new one starts, with no faded copy left behind. The “Marker size” slider in the “Markers” tab makes every marker icon and label smaller or larger, which helps when mapping a small area crowded with events. Each marker also has its own “Size of this marker” slider, to make an important place stand out; the two combine. Each marker\u2019s own fade time can be set in days, months, or years in its panel.']],
+ ['Routes and armies',[
+  'Routes show movement over time: campaigns, retreats, migrations, trade routes, and pilgrimages.',
+  {steps:['Choose “New route or army” in the “Markers” tab (or “Tools,” or press ⟦U⟧).','Click along the way it went, from start to finish, using any drawing tool. Every point you click becomes a stop.','Press “Finish” (⟦Enter⟧), then set the route\u2019s type, name, and dates: it sets out on the first date and arrives on the second.']},
+  {list:['“Advance” draws a solid arrow, “Retreat” a dashed one, “Planned” a dotted one for a movement that never happened, and “Route or road” a plain line.','As time plays, the line grows from start to finish. Give any stop its own date to control the pace.','Tick “This is an army” to show a unit symbol, in the side\u2019s color, traveling along the route with its name.','Enter troop numbers at the start, the end, or any stop, and the line\u2019s thickness follows them, compared with the largest army on the map. This is the style of Minard\u2019s famous map of Napoleon\u2019s march on Russia.']},
+  'The route\u2019s panel has one table for the whole journey: “Start,” each stop, and “Arrival,” each with an optional name, a date, and troops. The Start and Arrival dates are the route\u2019s own dates, so dating the last point sets when it arrives. Dates must run in order, and you\u2019re told if one doesn\u2019t. Named stops appear along the route, and dated stops appear in the “Events” list (“reaches Toledo”).',
+  'To reshape a route, press “Edit points” (⟦E⟧) and drag its points, just like a region\u2019s shape. “Draw the line again” replaces the whole line but keeps everything else. The timeline\u2019s ⏮ ⏭ buttons stop at every departure, dated stop, and arrival, and each has a tick mark on the timeline.',
+  'Routes appear in the “Markers” list and the “Events” list, and in stories, images, and videos.']],
  ['Tags and search',[
   'Tags group things together. Type them in the “Tags” box, separated by commas (for example, “Christian kingdoms, Iberia”).',
   {list:['Click a tag chip above the list to hide everything with that tag. Click it again to bring it back.','Press ⟦/⟧ to search names, tags, and notes.']}]],
@@ -3259,12 +3505,13 @@ document.addEventListener('keydown',e=>{
     case 'y': case 'Y': e.preventDefault(); stopPlay(); $('#yearBtn').click(); break;
     case 'n': case 'N': e.preventDefault(); startDraw(); break;
     case 'm': case 'M': e.preventDefault(); startPlace(); break;
-    case 'e': case 'E': if(!needR()) break; ensureMap(); if(!active(r,state.year)) setYear(tStart(r),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); break;
+    case 'e': case 'E': if(selRoute()){ const t0=selRoute(); ensureMap(); if(!routeState(t0,state.year)) setYear(tStart(t0),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); break; } if(!needR()) break; ensureMap(); if(!active(r,state.year)) setYear(tStart(r),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); break;
     case 'a': case 'A': if(needR()) startDraw(r.id); break;
-    case 'd': case 'D': if(needR()) duplicate(r); break;
+    case 'd': case 'D': if(mk) duplicateMarker(mk); else if(needR()) duplicate(r); break;
     case 'j': case 'J': if(needR()) mergeDialog(r); break;
     case 'x': case 'X': if(needR()) startCut(r); break;
     case 'g': case 'G': startFill(); break;
+    case 'u': case 'U': startRoute(); break;
     case 'w': case 'W': startDraw(null,'erase'); break;
     case 'h': case 'H': setHud(!hudHidden()); break;
     case 'F2': if(!needAny()) break; e.preventDefault(); if(hudHidden()) setHud(false,true); { const i=$('#f-name'); if(i){ i.focus(); i.select(); } } break;
@@ -3307,14 +3554,14 @@ function deser(o){
       overlord:typeof o.overlord==='string'?o.overlord:null,parts,v:1,updated:+o.updated||0,sources:String(o.sources||'')},o);
   }catch(_){ return null; }
 }
-function serM(m){ return {...dateFields(m),sources:m.sources||'',linger:m.linger||null,id:m.id,name:m.name,kind:m.kind,start:m.start,end:m.end,startCirca:!!m.startCirca,endCirca:!!m.endCirca,lon:m.lon,lat:m.lat,notes:m.notes||'',tags:m.tags||[],updated:m.updated||Date.now()}; }
+function serM(m){ return {...(m.size&&m.size!==1?{size:m.size}:{}),...dateFields(m),sources:m.sources||'',linger:m.linger||null,id:m.id,name:m.name,kind:m.kind,start:m.start,end:m.end,startCirca:!!m.startCirca,endCirca:!!m.endCirca,lon:m.lon,lat:m.lat,notes:m.notes||'',tags:m.tags||[],updated:m.updated||Date.now()}; }
 function deserM(o){
   if(!o||typeof o.id!=='string'||!isFinite(o.lon)||!isFinite(o.lat)) return null;
   const lg=o.linger&&isFinite(o.linger.n)&&['d','m','y'].includes(o.linger.u)?{n:Math.max(0,+o.linger.n),u:o.linger.u}:null;
-  return readDates({id:o.id,name:String(o.name||''),kind:KINDS[o.kind]?o.kind:'other',start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
+  return readDates({size:isFinite(o.size)&&o.size>=0.4&&o.size<=3?+o.size:1,id:o.id,name:String(o.name||''),kind:KINDS[o.kind]?o.kind:'other',start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
     lon:+o.lon,lat:+o.lat,notes:String(o.notes||''),tags:Array.isArray(o.tags)?o.tags.map(String):[],v:1,updated:+o.updated||0,sources:String(o.sources||''),linger:lg},o);
 }
-function settingsObj(){ return {min:state.min,max:state.max,year:state.year,showBorders:state.showBorders,showAdmin1:state.showAdmin1,showCNames:state.showCNames,showPNames:state.showPNames,terrain:state.terrain,terrainOff:state.terrainOff,snap:state.snap,hiddenTags:state.hiddenTags,view:state.view,lastKind:state.lastKind,storyAuto:state.storyAuto,vMin:state.vMin,vMax:state.vMax,linger:state.linger,tool:state.tool,follow:state.follow,includeWater:state.includeWater,markerScale:state.markerScale,snapOpts:state.snapOpts,overlapCheck:state.overlapCheck}; }
+function settingsObj(){ return {min:state.min,max:state.max,year:state.year,showBorders:state.showBorders,showAdmin1:state.showAdmin1,showCNames:state.showCNames,showPNames:state.showPNames,terrain:state.terrain,terrainOff:state.terrainOff,snap:state.snap,hiddenTags:state.hiddenTags,view:state.view,lastKind:state.lastKind,storyAuto:state.storyAuto,vMin:state.vMin,vMax:state.vMax,linger:state.linger,tool:state.tool,follow:state.follow,includeWater:state.includeWater,markerScale:state.markerScale,markerDrag:state.markerDrag,snapOpts:state.snapOpts,overlapCheck:state.overlapCheck}; }
 function applySettings(s){
   if(!s) return;
   if(isFinite(s.min)&&isFinite(s.max)&&s.min<s.max){ state.min=+s.min; state.max=+s.max; }
@@ -3327,6 +3574,7 @@ function applySettings(s){
   if(s.snapOpts&&typeof s.snapOpts==='object') Object.keys(state.snapOpts).forEach(k=>{ if(typeof s.snapOpts[k]==='boolean') state.snapOpts[k]=s.snapOpts[k]; });
   if(typeof s.overlapCheck==='boolean') state.overlapCheck=s.overlapCheck;
   if(typeof s.includeWater==='boolean') state.includeWater=s.includeWater;
+  if(typeof s.markerDrag==='boolean') state.markerDrag=s.markerDrag;
   if(isFinite(s.markerScale)&&s.markerScale>=0.4&&s.markerScale<=3) state.markerScale=+s.markerScale;
   if(isFinite(s.vMin)&&isFinite(s.vMax)&&s.vMin<s.vMax&&s.vMin!==null){ state.vMin=+s.vMin; state.vMax=+s.vMax; } else { state.vMin=null; state.vMax=null; }
   if(s.linger&&isFinite(s.linger.n)&&['d','m','y'].includes(s.linger.u)) state.linger={n:+s.linger.n,u:s.linger.u};
@@ -3335,7 +3583,7 @@ function applySettings(s){
 }
 const store={db:null};
 let cacheT=null;
-function cacheSoon(){ clearTimeout(cacheT); cacheT=setTimeout(()=>{ try{ localStorage.setItem(LS_KEY,JSON.stringify({settings:settingsObj(),regions:state.regions.map(ser),markers:state.markers.map(serM),stories:storiesPayload()})); }catch(_){ } checkBackupNudge(); },400); }
+function cacheSoon(){ clearTimeout(cacheT); cacheT=setTimeout(()=>{ try{ localStorage.setItem(LS_KEY,JSON.stringify({settings:settingsObj(),regions:state.regions.map(ser),markers:state.markers.map(serM),routes:state.routes.map(serR),stories:storiesPayload()})); }catch(_){ } checkBackupNudge(); },400); }
 function cacheRead(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'null'); }catch(_){ return null; } }
 const timers={},chains={};
 function chain(key,fn){ chains[key]=(chains[key]||Promise.resolve()).then(fn).catch(dbErr); return chains[key]; }
@@ -3355,19 +3603,20 @@ function renderFromState(){ updateSpeedLabels(); setTimeout(checkBackupNudge,50)
 
 async function init(){
   const cached=cacheRead();
-  if(cached){ applySettings(cached.settings); state.regions=(cached.regions||[]).map(deser).filter(Boolean); state.markers=(cached.markers||[]).map(deserM).filter(Boolean); { const st=cached.stories?storiesFrom(cached.stories):storiesFrom(cached.story); setStories(st.list,st.cur); } }
+  if(cached){ applySettings(cached.settings); state.regions=(cached.regions||[]).map(deser).filter(Boolean); state.markers=(cached.markers||[]).map(deserM).filter(Boolean); state.routes=(cached.routes||[]).map(deserR).filter(Boolean); { const st=cached.stories?storiesFrom(cached.stories):storiesFrom(cached.story); setStories(st.list,st.cur); } }
   renderFromState();
   if(IS_PHONE) svg.call(zoom.transform,homeTransform());
   setSync('Connecting…');
   let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db'); }catch(_){}
   if(!db){ setSync('Saved in this browser. Save a backup file every so often.'); return; }
   try{
-    const [snapR,snapM,s,st]=await Promise.all([db.collection('regions').limit(1000).get(),db.collection('markers').limit(1000).get(),db.doc('meta/settings').get(),db.doc('meta/story').get()]);
+    const [snapR,snapM,s,st,snapT]=await Promise.all([db.collection('regions').limit(1000).get(),db.collection('markers').limit(1000).get(),db.doc('meta/settings').get(),db.doc('meta/story').get(),db.collection('routes').limit(1000).get()]);
     store.db=db;
     const merge=(localArr,docs,des,coll,serFn)=>{ const remote=new Map(docs.map(d=>des(d.data())).filter(Boolean).map(o=>[o.id,o])); const push=[];
       localArr.forEach(l=>{ const rr=remote.get(l.id); if(!rr||l.updated>rr.updated){ remote.set(l.id,l); push.push(l); } });
       push.forEach(o=>chain(coll+'/'+o.id,()=>db.doc(coll+'/'+o.id).set(serFn(o)))); return [...remote.values()]; };
     state.regions=merge(state.regions,snapR.docs,deser,'regions',ser);
+    state.routes=merge(state.routes,snapT.docs,deserR,'routes',serR);
     state.markers=merge(state.markers,snapM.docs,deserM,'markers',serM);
     if(st.exists){ try{ const got=storiesFrom(JSON.parse(st.data().items||'[]')); const n=got.list.reduce((t,x)=>t+((x.steps||[]).length),0); if(n||!totalSteps()) setStories(got.list,got.cur); }catch(_){} } else if(totalSteps()) saveStory();
     if(s.exists&&!cached) applySettings(s.data());
