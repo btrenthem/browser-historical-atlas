@@ -4,10 +4,10 @@ This is a sandbox to make historical timelines across a pre-generated modern map
 
 **How to use:**
 
-Download html
-Open html
-Press the question mark or "?" for a getting started guide
-Optional: download the "reconquista-demo" file for a demo of features. *Please note the demo was AI generated and may not be historically accurate*
+- Download html
+- Open html
+- Press the question mark or "?" for a getting started guide
+- Optional: download the "reconquista-demo" file for a demo of features. *Please note the demo was AI generated and may not be historically accurate*
 
 For feedback on the main project, please reach out to brandon@brandontrenthem.com. I do not log into github often so you must email for inquiries and feature requests!
 
