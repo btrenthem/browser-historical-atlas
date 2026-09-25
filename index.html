@@ -505,6 +505,15 @@ body.phone .evlist .ryears{display:none}
 .rt-stoplabel{font:600 10px var(--sans);fill:var(--ink);paint-order:stroke;stroke:var(--land);stroke-width:3px;stroke-linejoin:round}
 .handle.v.stopv{stroke-width:2.4}
 body.phone .journey .jhead,body.phone .journey .jrow{grid-template-columns:3.8em minmax(0,1fr) minmax(0,1fr) 4.6em}
+
+.periods{display:flex;flex-direction:column;gap:8px}
+.period{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.period.cur{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.period .phd{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.period .pacts{display:flex;gap:10px}
+.period input,.period textarea{margin:0!important}
+.period textarea{min-height:52px}
+.period .two label{margin:0}
 .modal{padding:10px;align-items:end}
 body.phone .modal > div{width:100%;max-height:calc(100% - 10px);overflow-y:auto;border-radius:14px}
 body.phone .modal .row{flex-wrap:wrap}
@@ -1281,11 +1290,11 @@ function renderMarkers(){
   const g=L.markers.selectAll('g.mk').data(vis,d=>d.id).join(en=>{
     const g=en.append('g').attr('class','mk'); g.append('path'); g.append('text').attr('x',9).attr('y',0);
     g.on('click',(e,d)=>{ if(state.mode!=='view') return; e.stopPropagation(); hidePop(); select(d.id,'marker'); }).call(markerDrag);
-    g.on('mousemove',(e,d)=>showTip(e,d.name||'Untitled marker',`${KINDS[d.kind].label}, ${span(d)}`,d.notes)).on('mouseleave',hideTip);
+    g.on('mousemove',(e,d)=>showTip(e,markerLabel(d),`${KINDS[d.kind].label}, ${(()=>{ const p=periodAt(d,state.year); return p?span(Object.assign({startCirca:false,endCirca:false},p)):span(d); })()}`,markerNotes(d))).on('mouseleave',hideTip);
     return g; });
   g.classed('faded',d=>d._s===2).classed('sel',d=>d.id===state.selected);
   g.select('path').attr('d',d=>d3.symbol(KINDS[d.kind].sym,KINDS[d.kind].size)()).attr('transform',d=>`rotate(${KINDS[d.kind].rot})`).attr('fill',d=>KINDS[d.kind].color);
-  g.select('text').text(d=>d.name);
+  g.select('text').text(d=>markerLabel(d));
   rescale();
 }
 const markerDrag=d3.drag().filter(e=>state.markerDrag&&!e.button).subject(function(e,d){ return {x:d._xy[0],y:d._xy[1]}; })
@@ -1440,7 +1449,7 @@ function nowDate(prec){ const f=fromT(state.year+1e-7); prec=prec||curPrec(); re
 const fmtNow=()=>fmtT(state.year,curPrec());
 const snapT=(t,prec)=>dT(truncD(fromT(t+1e-7),prec||curPrec()));
 function routeTimes(t){ const out=[tStart(t)]; if(t.end!=null) out.push(tStart({start:t.end,startM:t.endM,startD:t.endD}),tEnd(t)); (t.stops||[]).forEach(s0=>{ if(s0.date) out.push(dT(s0.date)); }); return out; }
-function changePoints(){ const s=new Set(); state.regions.concat(state.markers).forEach(o=>{ s.add(+tStart(o).toFixed(7)); const e=tEnd(o); if(isFinite(e)) s.add(+e.toFixed(7)); }); state.routes.forEach(t=>routeTimes(t).forEach(x=>{ if(isFinite(x)) s.add(+x.toFixed(7)); })); return [...s].sort((a,b)=>a-b); }
+function changePoints(){ const s=new Set(); state.regions.concat(state.markers).forEach(o=>{ s.add(+tStart(o).toFixed(7)); const e=tEnd(o); if(isFinite(e)) s.add(+e.toFixed(7)); }); state.markers.forEach(m=>(m.periods||[]).forEach(p=>{ s.add(+pS(p).toFixed(7)); })); state.routes.forEach(t=>routeTimes(t).forEach(x=>{ if(isFinite(x)) s.add(+x.toFixed(7)); })); return [...s].sort((a,b)=>a-b); }
 function renderTimeline(){
   const a=winMin(), b=winMax(), p=curPrec();
   slider.value=String(Math.round((state.year-a)/(b-a)*10000));
@@ -1991,11 +2000,12 @@ function renderMarkerEditor(m,opts){
   ed.appendChild(el('p',{class:'notice',id:'edNotice',hidden:true}));
   const name=el('input',{type:'text',id:'f-name',autocomplete:'off'}); name.value=m.name;
   bindEdit(name,v=>{ m.name=v; bump(m); renderMarkers(); saveM(m); });
-  ed.appendChild(el('label',null,'Name',name));
+  ed.appendChild(el('label',null,'Name (used when a period has no name of its own)',name));
   const kind=el('select'); Object.entries(KINDS).forEach(([k,v])=>kind.appendChild(el('option',{value:k,text:v.label}))); kind.value=m.kind;
   kind.addEventListener('change',()=>{ checkpoint(); m.kind=kind.value; state.lastKind=m.kind; bump(m); refresh(); });
   ed.appendChild(el('label',null,'Kind',kind));
-  ed.appendChild(yearFields(m,refresh));
+  ed.appendChild(periodsField(m,refresh));
+  { const same=state.markers.filter(o=>o!==m&&o.lon===m.lon&&o.lat===m.lat).length; if(same) ed.appendChild(el('p',{class:'notice'},`${same} other ${same===1?'marker is':'markers are'} at this exact spot. `,el('button',{text:'Combine them into this marker\u2019s periods',onclick:()=>combineAtSpot(m)}))); }
   ed.appendChild(lingerField(m,refresh));
   { const sl=el('input',{type:'range',min:0.4,max:3,step:0.1,'aria-label':'Size of this marker'}); sl.value=m.size||1; const out=el('span',{text:Math.round((m.size||1)*100)+'%'});
     let pend=true; sl.addEventListener('pointerdown',()=>pend=true);
@@ -2003,15 +2013,12 @@ function renderMarkerEditor(m,opts){
     sl.addEventListener('change',()=>{ bump(m); saveM(m); pend=true; });
     ed.appendChild(el('label',{class:'marker-size'},'Size of this marker',sl,out)); }
   ed.appendChild(tagField(m,refresh));
-  const notes=el('textarea',{placeholder:'What happened, who was involved…'}); notes.value=m.notes||'';
-  bindEdit(notes,v=>{ m.notes=v; bump(m); saveM(m); });
-  ed.appendChild(el('label',null,'Notes',notes));
   ed.appendChild(sourcesField(m,()=>saveM(m)));
   let delArmed=null;
   const delBtn=el('button',{class:'btn danger',text:'Delete',onclick:()=>{
     if(!delArmed){ delBtn.textContent='Click again to delete'; delArmed=setTimeout(()=>{ delArmed=null; delBtn.textContent='Delete'; },3500); return; }
     clearTimeout(delArmed); deleteMarker(m); }});
-  ed.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'Zoom to',onclick:()=>{ ensureMap(); zoomToMarker(m); }}),focusBtn(m),el('button',{class:'btn',text:'Duplicate',title:'End this marker and start a copy at the same spot (D)',onclick:()=>duplicateMarker(m)}),delBtn));
+  ed.appendChild(el('div',{class:'actions'},el('button',{class:'btn',text:'Zoom to',onclick:()=>{ ensureMap(); zoomToMarker(m); }}),focusBtn(m),delBtn));
   ed.appendChild(el('p',{class:'hint',text:(state.markerDrag?'Drag the marker on the map to move it. ':'To move markers by dragging, tick \u201cAllow dragging markers\u201d in the \u201cMarkers\u201d tab. ')+'To tell a place\u2019s story over time, go to the date of a change and press \u201cDuplicate.\u201d When an event ends, it stays on the map, faded, for the time set above, so short events don\u2019t flash past during playback.'}));
   pbody.appendChild(ed); updateMarkerNotice(m);
   if(opts.focusName){ name.focus(); name.select(); }
@@ -2391,7 +2398,8 @@ function eventList(){
   state.regions.forEach(r=>{ out.push({t:tStart(r),dt:dStart(r),c:r.startCirca,o:r,kind:'region',what:'begins'}); if(r.end!=null) out.push({t:endExclT(r.end,r.endM,r.endD)-1e-7,dt:dEnd(r),c:r.endCirca,o:r,kind:'region',what:'ends'}); });
   state.routes.forEach(t=>(t.stops||[]).forEach((s0,i)=>{ if(s0.date) out.push({t:dT(s0.date),dt:s0.date,c:false,o:t,kind:'region',what:`reaches ${s0.name||'stop '+(i+1)}`}); }));
   state.routes.forEach(t=>{ out.push({t:tStart(t),dt:dStart(t),c:t.startCirca,o:t,kind:'region',what:t.army?'sets out':'begins'}); if(t.end!=null&&!dEq(dEnd(t),dStart(t))) out.push({t:endExclT(t.end,t.endM,t.endD)-1e-7,dt:dEnd(t),c:t.endCirca,o:t,kind:'region',what:t.army?'arrives':'ends'}); });
-  state.markers.forEach(m=>out.push({t:tStart(m),dt:dStart(m),c:m.startCirca,o:m,kind:'marker',what:m.end!=null&&!dEq(dEnd(m),dStart(m))?`until ${fmtD(dEnd(m))}`:''}));
+  state.markers.filter(m=>m.periods&&m.periods.length>1).forEach(m=>m.periods.forEach(p=>out.push({t:pS(p),dt:dStart(p),c:false,o:m,kind:'marker',label:p.name||m.name,what:p.end!=null&&!dEq(dEnd(p),dStart(p))?`until ${fmtD(dEnd(p))}`:''})));
+  state.markers.filter(m=>!(m.periods&&m.periods.length>1)).forEach(m=>out.push({t:tStart(m),dt:dStart(m),c:m.startCirca,o:m,kind:'marker',what:m.end!=null&&!dEq(dEnd(m),dStart(m))?`until ${fmtD(dEnd(m))}`:''}));
   return out.sort((a,b)=>a.t-b.t||(a.what==='ends')-(b.what==='ends'));
 }
 let evQ='';
@@ -2404,7 +2412,7 @@ function renderEvents(){
     if(!items.length){ list.appendChild(el('li',{class:'ryears',text:state.regions.length||state.markers.length?'Nothing matches that search.':'Regions and markers you add will be listed here in date order.'})); return; }
     items.forEach(x=>{ if(x.dt.y!==lastYear){ lastYear=x.dt.y; list.appendChild(el('li',{class:'evyear',text:fmtYear(x.dt.y)})); }
       const icon=x.kind==='region'?el('span',{class:'sw',style:`background:${x.o.color}`}):kindIcon(x.o.kind);
-      const label=x.kind==='region'?`${x.o.name||'Untitled region'} ${x.what}`:(x.o.name||'Untitled marker');
+      const label=x.label?x.label:x.kind==='region'?`${x.o.name||'Untitled region'} ${x.what}`:(x.o.name||'Untitled marker');
       list.appendChild(el('li',{'data-t':x.t},el('button',{onclick:()=>{ if(x.o.pts){ setYear(x.what==='arrives'||x.what==='ends'?Math.max(tStart(x.o),x.t-1e-6):x.t,{force:true}); select(x.o.id,'route'); return; } if(x.kind==='region'){ setYear(x.what==='ends'?Math.max(tStart(x.o),x.t-1e-6):x.t,{force:true}); goToRegion(x.o); } else goToMarker(x.o); }},
         el('span',{class:'evdate',text:(x.c?'c. ':'')+(x.dt.m==null?fmtYear(x.dt.y):fmtD(x.dt))}),icon,el('span',{class:'rname',text:label}),x.what&&x.kind==='marker'?el('span',{class:'ryears',text:x.what}):null))); });
     markNowEvent(); };
@@ -2580,6 +2588,62 @@ function deserR(o){ try{ if(!o||typeof o.id!=='string') return null; const pts=t
       pts,stops:Array.isArray(stops)?stops:[],notes:String(o.notes||''),sources:String(o.sources||''),tags:Array.isArray(o.tags)?o.tags.map(String):[],troopsStart:isFinite(o.troopsStart)&&o.troopsStart>0?+o.troopsStart:null,troopsEnd:isFinite(o.troopsEnd)&&o.troopsEnd>0?+o.troopsEnd:null,
       linger:o.linger&&isFinite(o.linger.n)&&['d','m','y'].includes(o.linger.u)?{n:+o.linger.n,u:o.linger.u}:null,v:1,updated:+o.updated||0},o); }catch(_){ return null; } }
 function saveR(r){ saveTo('routes',r,()=>serR(r)); }
+
+
+/* ---------- marker periods ----------
+   A marker can hold several periods (name, dates, notes). Its own start/end always span them,
+   so everything else (visibility, fading, lists) keeps working unchanged. */
+const pS=p=>toT(p.start,p.startM,p.startD), pE=p=>p.end==null?Infinity:endExclT(p.end,p.endM,p.endD);
+function periodsOf(m){ return (m.periods&&m.periods.length)?m.periods:[Object.assign({name:'',notes:m.notes||''},dateCopy(m))]; }
+function dateCopy(o){ const x={start:o.start,end:o.end}; ['startM','startD','endM','endD'].forEach(k=>{ if(o[k]!=null) x[k]=o[k]; }); return x; }
+function ensurePeriods(m){ if(!m.periods||!m.periods.length){ m.periods=[Object.assign({name:'',notes:m.notes||''},dateCopy(m))]; m.notes=''; } return m.periods; }
+function syncMarker(m){ const ps=m.periods; if(!ps||!ps.length) return; ps.sort((a,b)=>pS(a)-pS(b));
+  const f=ps[0], l=ps[ps.length-1]; setDStart(m,dStart(f)); setDEnd(m,l.end==null?null:dEnd(l)); }
+function periodAt(m,t){ if(!m.periods||!m.periods.length) return null; let cur=null; for(const p of m.periods) if(pS(p)<=t+1e-9) cur=p; return cur; }
+const markerLabel=(m,t)=>{ const p=periodAt(m,t==null?state.year:t); return (p&&p.name)||m.name||'Untitled marker'; };
+const markerNotes=(m,t)=>{ const p=periodAt(m,t==null?state.year:t); return p?(p.notes||''):(m.notes||''); };
+function periodsField(m,refresh){
+  const ps=periodsOf(m), box=el('div',{class:'periods'});
+  const commit=()=>{ syncMarker(m); bump(m); refresh(); renderTicks(); renderPanel({full:true}); };
+  const overlapWarn=()=>{ const a=m.periods; for(let i=1;i<a.length;i++) if(pE(a[i-1])>pS(a[i])+1e-9){ toast(`\u201c${a[i-1].name||'A period'}\u201d overlaps \u201c${a[i].name||'the next period'}.\u201d On the map, the later one is shown from its start date.`); return; } };
+  ps.forEach((p,i)=>{
+    const nm=el('input',{type:'text',placeholder:m.name?`e.g., ${m.name} under a new ruler`:'Name of this period',autocomplete:'off'}); nm.value=p.name||'';
+    bindEdit(nm,v=>{ ensurePeriods(m); m.periods[i].name=v.trim(); bump(m); saveM(m); renderMarkers(); },'change');
+    const mkD=(which)=>{ const i2=el('input',{type:'text',placeholder:which==='start'?'from':'until (empty = still going)',autocomplete:'off'}); i2.value=fmtDIn(which==='start'?dStart(p):dEnd(p));
+      i2.addEventListener('change',()=>{ const v=i2.value.trim(), dt=v?parseDate(v):null;
+        if((v&&(!dt||typeof dt==='number'))||(which==='start'&&!dt)){ toast('Type a date like 1085, May 1085, or May 25, 1085.'); i2.value=fmtDIn(which==='start'?dStart(p):dEnd(p)); return; }
+        const q=ensurePeriods(m)[i];
+        if(which==='start'&&q.end!=null&&dT(dt)>=endExclT(q.end,q.endM,q.endD)){ toast('A period has to start before it ends.'); i2.value=fmtDIn(dStart(q)); return; }
+        if(which==='end'&&dt&&endExclT(dt.y,dt.m,dt.d)<=pS(q)){ toast('A period has to end after it starts.'); i2.value=fmtDIn(dEnd(q)); return; }
+        checkpoint(); if(which==='start') setDStart(q,dt); else setDEnd(q,dt); commit(); overlapWarn(); });
+      return i2; };
+    const notes=el('textarea',{placeholder:'What happened in this period…'}); notes.value=p.notes||'';
+    bindEdit(notes,v=>{ ensurePeriods(m)[i].notes=v; bump(m); saveM(m); });
+    const acts=el('div',{class:'pacts'},
+      el('button',{class:'linkbtn',text:'Duplicate',title:'Copy this period, starting when it ends',onclick:()=>{ checkpoint(); const a=ensurePeriods(m), q=a[i], c=JSON.parse(JSON.stringify(q)); const sd=q.end!=null?dNext(dEnd(q)):nowDate(); if(q.end==null) setDEnd(q,dPrev(sd)); setDStart(c,sd); setDEnd(c,null); a.push(c); commit(); toast(`Copied, starting ${fmtD(sd)}.`); }}),
+      el('button',{class:'linkbtn',text:'Go to',onclick:()=>{ setYear(pS(p),{force:true}); }}),
+      el('button',{class:'linkbtn danger',text:'Delete',onclick:()=>{ const a=ensurePeriods(m); if(a.length<2){ toast('A marker needs at least one period. To remove the marker, use \u201cDelete\u201d below.'); return; } checkpoint(); a.splice(i,1); commit(); toast('Period deleted. Undo will bring it back.'); }}));
+    box.appendChild(el('div',{class:'period'+(periodAt(m,state.year)===p?' cur':'')},el('div',{class:'phd'},el('span',{text:`Period ${i+1}`}),acts),nm,el('div',{class:'two'},mkD('start'),mkD('end')),notes));
+  });
+  box.appendChild(el('button',{class:'btn',text:'Add a period',title:'Starts on the current date (or when the last period ends) (Shift+M)',onclick:()=>{ addPeriod(m); }}));
+  return el('div',null,el('label',{style:'margin-bottom:4px'},'Periods'),box,el('p',{class:'hint',text:'Each period has its own name, dates, and notes. On the map, the marker shows the current period\u2019s name, and hovering shows its notes.'}));
+}
+function addPeriod(m){
+  checkpoint(); const a=ensurePeriods(m), l=a[a.length-1]; let sd=nowDate();
+  if(l.end!=null&&dT(sd)<endExclT(l.end,l.endM,l.endD)) sd=dNext(dEnd(l));
+  if(l.end==null){ if(dT(sd)<=pS(l)+1e-9) sd=dNext(truncD(dStart(l),curPrec())); setDEnd(l,dPrev(sd)); }
+  const c={name:'',notes:''}; setDStart(c,sd); setDEnd(c,null); a.push(c); syncMarker(m); bump(m); saveM(m); renderAll(); renderTicks();
+  setYear(dT(sd),{force:true}); renderPanel({full:true}); toast(`New period starting ${fmtD(sd)}. Give it a name and notes.`);
+  requestAnimationFrame(()=>{ const ins=pbody.querySelectorAll('.period input[type=text]'); const i=ins[ins.length-3]; if(i){ i.focus(); } });
+}
+function combineAtSpot(m){
+  const same=state.markers.filter(o=>o!==m&&o.lon===m.lon&&o.lat===m.lat); if(!same.length) return;
+  checkpoint(); const all=[m].concat(same).sort((a,b)=>tStart(a)-tStart(b)), ps=[];
+  all.forEach(o=>periodsOf(o).forEach(p=>ps.push(Object.assign({},p,{name:p.name||(o===m&&!m.periods?'':o.name)||o.name,notes:p.notes||(o.periods?'':o.notes)||''}))));
+  m.periods=ps; m.notes=''; m.tags=[...new Set(all.flatMap(o=>o.tags||[]))]; syncMarker(m); bump(m); saveM(m);
+  same.forEach(o=>{ state.markers=state.markers.filter(x=>x!==o); removeStored(o,'markers'); });
+  renderAll(); renderTicks(); renderTabs(); renderPanel({full:true}); toast(`Combined ${all.length} markers into one with ${ps.length} periods. Undo will reverse it.`);
+}
 
 /* ---------- story ---------- */
 const tweenNode=document.createElement('div');
@@ -3214,7 +3278,8 @@ const HELP=[
     ['New marker',['M']],
     ['Edit shape of selected region',['E']],
     ['Add a part to selected region',['A']],
-    ['Duplicate selected region or marker',['D']],
+    ['Duplicate selected region',['D']],
+    ['Add a period to the selected marker',['Shift','M']],
     ['Merge selected region with another',['J']],
     ['Split selected region',['X']],
     ['New route or army',['U']],
@@ -3348,7 +3413,7 @@ const GUIDE=[
   {list:['Set “Border” to “Approximate” for a dashed, lighter outline, or to “Disputed” for a hatched area.','Tick “Approximate” under a year to show it as “c. 1100.”','Leave “Until” empty if the region still exists at the end of your timeline.']}]],
  ['Markers for cities and events',[
   {steps:['Press “New marker” (⟦M⟧) and click the map.','Choose the kind (city, battle, treaty, event, or other), and fill in the name, years, and notes.']},
-  'After an event ends, it fades for the time set in the “Markers” tab (five years to start with), but never longer than the event itself lasted, so a three-day battle fades after three days. A marker\u2019s own setting overrides this. Markers stay put unless you tick “Allow dragging markers” in the “Markers” tab. To tell a place\u2019s story over time (a city renamed or rebuilt, say), go to the date of the change, select the marker, and press “Duplicate” (⟦D⟧): the original ends just before that date, and a copy at the same spot starts then, ready for its own name and notes. The old version disappears the moment the new one starts, with no faded copy left behind. The “Marker size” slider in the “Markers” tab makes every marker icon and label smaller or larger, which helps when mapping a small area crowded with events. Each marker also has its own “Size of this marker” slider, to make an important place stand out; the two combine. Each marker\u2019s own fade time can be set in days, months, or years in its panel.']],
+  'After an event ends, it fades for the time set in the “Markers” tab (five years to start with), but never longer than the event itself lasted, so a three-day battle fades after three days. A marker\u2019s own setting overrides this. Markers stay put unless you tick “Allow dragging markers” in the “Markers” tab. To tell a place\u2019s story over time (a city renamed, conquered, or rebuilt), give one marker several periods. In its panel, “Add a period” (⟦Shift⟧ ⟦M⟧) starts a new one on the current date, each with its own name, dates, and notes; “Duplicate” copies a period, and “Delete” removes one. On the map, the marker shows the current period\u2019s name, and hovering shows its notes. If you made separate markers at the same spot earlier, the panel offers to combine them into one marker\u2019s periods. The “Marker size” slider in the “Markers” tab makes every marker icon and label smaller or larger, which helps when mapping a small area crowded with events. Each marker also has its own “Size of this marker” slider, to make an important place stand out; the two combine. Each marker\u2019s own fade time can be set in days, months, or years in its panel.']],
  ['Routes and armies',[
   'Routes show movement over time: campaigns, retreats, migrations, trade routes, and pilgrimages.',
   {steps:['Choose “New route or army” in the “Markers” tab (or “Tools,” or press ⟦U⟧).','Click along the way it went, from start to finish, using any drawing tool. Every point you click becomes a stop.','Press “Finish” (⟦Enter⟧), then set the route\u2019s type, name, and dates: it sets out on the first date and arrives on the second.']},
@@ -3504,10 +3569,11 @@ document.addEventListener('keydown',e=>{
     case '.': case '>': stepSpeed(1); break;
     case 'y': case 'Y': e.preventDefault(); stopPlay(); $('#yearBtn').click(); break;
     case 'n': case 'N': e.preventDefault(); startDraw(); break;
-    case 'm': case 'M': e.preventDefault(); startPlace(); break;
+    case 'm': e.preventDefault(); startPlace(); break;
+    case 'M': e.preventDefault(); if(mk) addPeriod(mk); else startPlace(); break;
     case 'e': case 'E': if(selRoute()){ const t0=selRoute(); ensureMap(); if(!routeState(t0,state.year)) setYear(tStart(t0),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); break; } if(!needR()) break; ensureMap(); if(!active(r,state.year)) setYear(tStart(r),{force:true}); state.editShape=!state.editShape; renderHandles(); renderPanel({full:true}); break;
     case 'a': case 'A': if(needR()) startDraw(r.id); break;
-    case 'd': case 'D': if(mk) duplicateMarker(mk); else if(needR()) duplicate(r); break;
+    case 'd': case 'D': if(mk) toast('To add a period to this marker, press Shift+M.'); else if(needR()) duplicate(r); break;
     case 'j': case 'J': if(needR()) mergeDialog(r); break;
     case 'x': case 'X': if(needR()) startCut(r); break;
     case 'g': case 'G': startFill(); break;
@@ -3554,11 +3620,12 @@ function deser(o){
       overlord:typeof o.overlord==='string'?o.overlord:null,parts,v:1,updated:+o.updated||0,sources:String(o.sources||'')},o);
   }catch(_){ return null; }
 }
-function serM(m){ return {...(m.size&&m.size!==1?{size:m.size}:{}),...dateFields(m),sources:m.sources||'',linger:m.linger||null,id:m.id,name:m.name,kind:m.kind,start:m.start,end:m.end,startCirca:!!m.startCirca,endCirca:!!m.endCirca,lon:m.lon,lat:m.lat,notes:m.notes||'',tags:m.tags||[],updated:m.updated||Date.now()}; }
+function serM(m){ return {...(m.periods&&m.periods.length?{periods:JSON.stringify(m.periods)}:{}),...(m.size&&m.size!==1?{size:m.size}:{}),...dateFields(m),sources:m.sources||'',linger:m.linger||null,id:m.id,name:m.name,kind:m.kind,start:m.start,end:m.end,startCirca:!!m.startCirca,endCirca:!!m.endCirca,lon:m.lon,lat:m.lat,notes:m.notes||'',tags:m.tags||[],updated:m.updated||Date.now()}; }
 function deserM(o){
   if(!o||typeof o.id!=='string'||!isFinite(o.lon)||!isFinite(o.lat)) return null;
   const lg=o.linger&&isFinite(o.linger.n)&&['d','m','y'].includes(o.linger.u)?{n:Math.max(0,+o.linger.n),u:o.linger.u}:null;
-  return readDates({size:isFinite(o.size)&&o.size>=0.4&&o.size<=3?+o.size:1,id:o.id,name:String(o.name||''),kind:KINDS[o.kind]?o.kind:'other',start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
+  let periods=null; try{ const pp=typeof o.periods==='string'?JSON.parse(o.periods):o.periods; if(Array.isArray(pp)&&pp.length) periods=pp.filter(p=>p&&isFinite(p.start)).map(p=>readDates({name:String(p.name||''),notes:String(p.notes||''),start:+p.start,end:p.end==null?null:+p.end},p)); }catch(_){}
+  return readDates({...(periods&&periods.length?{periods}:{}),size:isFinite(o.size)&&o.size>=0.4&&o.size<=3?+o.size:1,id:o.id,name:String(o.name||''),kind:KINDS[o.kind]?o.kind:'other',start:+o.start||0,end:o.end==null?null:+o.end,startCirca:!!o.startCirca,endCirca:!!o.endCirca,
     lon:+o.lon,lat:+o.lat,notes:String(o.notes||''),tags:Array.isArray(o.tags)?o.tags.map(String):[],v:1,updated:+o.updated||0,sources:String(o.sources||''),linger:lg},o);
 }
 function settingsObj(){ return {min:state.min,max:state.max,year:state.year,showBorders:state.showBorders,showAdmin1:state.showAdmin1,showCNames:state.showCNames,showPNames:state.showPNames,terrain:state.terrain,terrainOff:state.terrainOff,snap:state.snap,hiddenTags:state.hiddenTags,view:state.view,lastKind:state.lastKind,storyAuto:state.storyAuto,vMin:state.vMin,vMax:state.vMax,linger:state.linger,tool:state.tool,follow:state.follow,includeWater:state.includeWater,markerScale:state.markerScale,markerDrag:state.markerDrag,snapOpts:state.snapOpts,overlapCheck:state.overlapCheck}; }
