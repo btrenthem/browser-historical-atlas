@@ -2,7 +2,9 @@
 
 This is a sandbox to make historical timelines across a pre-generated modern map. I made it for personal use, but you are free to download the html and experiment away. This has not been tested on mobile yet.
 
-**How to use:**
+Check it out here: https://btrenthem.github.io/browser-historical-atlas/
+
+**How to use offline:**
 
 - Download html
 - Open html
