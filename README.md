@@ -15,3 +15,6 @@ For feedback on the main project, please reach out to brandon@brandontrenthem.co
 
 
 **AI Disclaimer:** The main author of the codebase is our AI overlord Claude. A public license is attached so do whatever you want with it.
+
+to-do:
+add toggle for moving markers. its annoying that it is always activated.
